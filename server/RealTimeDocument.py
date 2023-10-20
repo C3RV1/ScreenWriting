@@ -1,4 +1,6 @@
-from server.ClientHandler import ClientHandler
+import typing
+if typing.TYPE_CHECKING:
+    from server.ClientHandler import ClientHandler
 from common.FountianParser import FountainParser
 import os
 
@@ -8,8 +10,8 @@ class RealTimeDocument:
         self.file_id = file_id
         self.blocks = blocks
 
-        self.editing_users: list[ClientHandler] = []
-        self.user_to_acquired_block: dict[ClientHandler] = {}
+        self.editing_users: list['ClientHandler'] = []
+        self.user_to_acquired_block: dict['ClientHandler'] = {}
 
     @classmethod
     def open_from_file_id(cls, file_id):

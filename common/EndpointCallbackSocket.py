@@ -1,10 +1,7 @@
 import dataclasses
 import logging
-import socket
 import struct
 import threading
-
-import select
 import ssl
 import typing
 
@@ -15,7 +12,6 @@ from common.EndpointID import EndpointID, EndpointConstructor
 class Endpoint:
     callback: typing.Callable
     constructor: type[EndpointConstructor]
-    max_data_size: int = 4096
 
 
 class EndpointCallbackSocket:
@@ -28,11 +24,11 @@ class EndpointCallbackSocket:
         self.sock_lock = threading.Lock()
         self.closed = False
 
-    def set_endpoint(self, endpoint_id: EndpointID, endpoint: Endpoint):
-        self.endpoints[endpoint_id] = endpoint
+    def set_endpoint(self, endpoint: Endpoint):
+        self.endpoints[endpoint.constructor.ENDPOINT_ID] = endpoint
 
-    def remove_endpoint(self, endpoint_id: EndpointID):
-        self.endpoints.pop(endpoint_id, None)
+    def remove_endpoint(self, endpoint_constructor: type[EndpointConstructor]):
+        self.endpoints.pop(endpoint_constructor.ENDPOINT_ID, None)
 
     def continuous_recv(self, size) -> bytes:
         data = self.pending_data
@@ -74,21 +70,18 @@ class EndpointCallbackSocket:
                 logging.warning(f"Endpoint {endpoint_id} not found.")
                 self.throw_recv(msg_size)
                 self.sock_lock.release()
-                print("RELEASED")
                 return
 
             endpoint = self.endpoints[endpoint_id]
-            if msg_size > endpoint.max_data_size > -1:
-                logging.warning(f"Exceeded endpoint {endpoint_id} size ({msg_size}, max {endpoint.max_data_size})")
+            if msg_size > endpoint.constructor.MAX_DATA_SIZE > -1:
+                logging.warning(f"Exceeded endpoint {endpoint_id} size ({msg_size}, "
+                                f"max {endpoint.constructor.MAX_DATA_SIZE})")
                 self.throw_recv(msg_size)
                 self.sock_lock.release()
-                print("RELEASED")
                 return
 
             msg = self.continuous_recv(msg_size)
             self.sock_lock.release()
-            print("RELEASED")
-            print("Handling endpoint")
             endpoint_constructed = endpoint.constructor.from_msg(msg)
             if endpoint_constructed is not None:
                 endpoint.callback(endpoint_constructed)
@@ -98,13 +91,13 @@ class EndpointCallbackSocket:
                 self.sock_lock.release()
             self.close()
 
-    def do_send(self, endpoint_id: EndpointID, constructed: EndpointConstructor):
+    def send_endp(self, constructed: EndpointConstructor):
         if self.closed:
             return
         self.sock_lock.acquire()
         try:
             msg = constructed.to_bytes()
-            msg_header = struct.pack("II", endpoint_id, len(msg))
+            msg_header = struct.pack("II", constructed.ENDPOINT_ID, len(msg))
             self.sock.sendall(msg_header + msg)
             self.sock_lock.release()
         except Exception:
@@ -117,6 +110,5 @@ class EndpointCallbackSocket:
             return
         self.closed = True
         self.sock.close()
-        print("CLOSING")
         if self.on_close:
             self.on_close()

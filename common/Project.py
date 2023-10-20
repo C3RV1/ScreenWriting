@@ -68,10 +68,10 @@ class Folder:
 
 class Project:
     def __init__(self, name, filesystem: Folder, trash):
-        self.name = name
-        self.filesystem = filesystem
+        self.name: str = name
+        self.filesystem: Folder = filesystem
         self.trash: dict[str, TrashObject] = trash
-        self.project_id = None
+        self.project_id: typing.Optional[str] = None
 
     def to_dict(self):
         return {

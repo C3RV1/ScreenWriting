@@ -1,23 +1,22 @@
 import ssl
 import os
-from client import Config
+from client.Config import ClientConfig
 import base64
 import socket
 import typing
 
-from common.EndpointID import EndpointID
-from common.EndpointCallbackSocket import Endpoint, EndpointCallbackSocket
+from common.EndpointID import *
+from common.EndpointCallbackSocket import EndpointCallbackSocket
 
 
 class Net:
-    def __init__(self, config: Config.Config):
+    def __init__(self):
         self.ssl_context: typing.Optional[ssl.SSLContext] = None
         self.sock: typing.Optional[EndpointCallbackSocket] = None
-        self.config = config
 
     def connect_to_server(self, hostname: str, confirm_trust: typing.Callable):
         hostname_b64 = base64.urlsafe_b64encode(hostname.encode("ascii")).decode("ascii")
-        hostname_cert_path = os.path.join(self.config.crt_folder_path, hostname_b64 + ".pem")
+        hostname_cert_path = os.path.join(ClientConfig.crt_folder_path, hostname_b64 + ".pem")
         new_host = False
 
         self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -32,7 +31,7 @@ class Net:
 
         sock = ssl.wrap_socket(socket.socket(socket.AF_INET))
         try:
-            sock.connect((hostname, self.config.CONNECT_PORT))
+            sock.connect((hostname, ClientConfig.CONNECT_PORT))
         except TimeoutError:
             return False
 
@@ -43,7 +42,7 @@ class Net:
             if confirm_trust:
                 trusted = confirm_trust(hostname)
             if not trusted:
-                self.sock.do_send(EndpointID.CLOSE)
+                self.sock.send_endp(Close())
                 self.sock.close()
                 return False
             der_cert = sock.getpeercert(binary_form=True)
@@ -55,5 +54,3 @@ class Net:
             with open(hostname_cert_path, "w") as f:
                 f.write(pem_cert)
         return True
-
-

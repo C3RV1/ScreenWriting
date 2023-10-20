@@ -1,7 +1,9 @@
 from common.Project import Project, Folder, TrashObject, Document
 from server.RealTimeDocument import RealTimeDocument
-from server.ClientHandler import ClientHandler
-from server.Config import Config
+import typing
+if typing.TYPE_CHECKING:
+    from server.ClientHandler import ClientHandler
+from server.Config import ServerConfig
 from pymongo import database
 import bson
 import datetime
@@ -9,16 +11,15 @@ import os
 
 
 class ServerProject(Project):
-    def __init__(self, name, filesystem: Folder, trash, config: Config):
+    def __init__(self, name, filesystem: Folder, trash):
         super().__init__(name, filesystem, trash)
-        self.opened_users: list[ClientHandler] = []
+        self.opened_users: list['ClientHandler'] = []
         self.current_realtime_documents: list[RealTimeDocument] = []
-        self.config = config
 
     def update_trash(self):
         documents_to_eliminate = []
         for name, trash_document in self.trash.items():
-            max_delta = datetime.timedelta(days=self.config.MAX_TRASH_CAN_DAYS)
+            max_delta = datetime.timedelta(days=ServerConfig.MAX_TRASH_CAN_DAYS)
             if trash_document.elimination_date - datetime.datetime.now(datetime.timezone.utc) > max_delta:
                 documents_to_eliminate.append(name)
 
@@ -111,23 +112,23 @@ class ServerProject(Project):
         return project_collection.find_one({"_id": bson.ObjectId(project_id)}) is not None
 
     @classmethod
-    def load_by_name(cls, db: database.Database, project_name: str, config: Config):
+    def load_by_name(cls, db: database.Database, project_name: str):
         project_collection = db["projects"]
         project_entry = project_collection.find_one({"name": project_name})
         if project_entry is None:
             return None
         project = cls(project_name, Folder.from_dict(project_entry["filesystem"]),
-                      [TrashObject.from_dict(d) for d in project_entry["trash"]], config)
+                      [TrashObject.from_dict(d) for d in project_entry["trash"]])
         project.project_id = str(project_entry["_id"])
         return project
 
     @classmethod
-    def load_from_id(cls, db: database.Database, project_id, config: Config):
+    def load_from_id(cls, db: database.Database, project_id):
         project_collection = db["projects"]
         project_entry = project_collection.find_one({"_id": bson.ObjectId(project_id)})
         if project_entry is None:
             return None
         project = cls(project_entry["name"], Folder.from_dict(project_entry["filesystem"]),
-                      [TrashObject.from_dict(d) for d in project_entry["trash"]], config)
+                      [TrashObject.from_dict(d) for d in project_entry["trash"]])
         project.project_id = project_id
         return project

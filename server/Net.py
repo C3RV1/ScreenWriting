@@ -3,7 +3,6 @@ import logging
 import os.path
 import socket
 import ssl
-import struct
 import threading
 
 import pymongo
@@ -14,7 +13,7 @@ from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import serialization
 from server import Config, ClientHandler
 import select
-from common.EndpointID import EndpointID
+from common.EndpointID import *
 from server.ServerProject import ServerProject
 
 
@@ -77,10 +76,9 @@ class Console(threading.Thread):
 
 
 class Net:
-    def __init__(self, config: Config.Config):
+    def __init__(self):
         logging.info("Initializing server...")
         self.ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        self.config = config
         self.mongo_client = pymongo.MongoClient("localhost", 27017)
         self.database = self.mongo_client["screenwriting"]
 
@@ -91,8 +89,8 @@ class Net:
 
         logging.info("Loaded certificates...")
         self.bind_socket = socket.socket()
-        self.bind_socket.bind(config.LISTENING_ADDR)
-        self.bind_socket.listen(config.MAX_BIND)
+        self.bind_socket.bind(Config.ServerConfig.LISTENING_ADDR)
+        self.bind_socket.listen(Config.ServerConfig.MAX_BIND)
 
         self.connected_lock = threading.Lock()
         self.connected_clients = []
@@ -139,30 +137,27 @@ class Net:
         project_names = [(p["name"], str(p["_id"])) for p in project_collection.find()]
         return project_names
 
-    def broadcast_created_project(self, project):
-        name_encoded = project.name.encode("utf-8")
-        msg = struct.pack("B", len(name_encoded)) + name_encoded + project.project_id
+    def broadcast_created_project(self, project: ServerProject):
+        msg = CreatedProject(project.project_id, project.name)
         for client in self.connected_clients:
             client: ClientHandler.ClientHandler
-            client.sock.do_send(EndpointID.CREATED_PROJECT, msg)
+            client.sock.send_endp(msg)
 
     def remove_project(self, project):
         project.remove_from_database(self.database)
-        msg = project.project_id
+        msg = DeletedProject(project.project_id)
         for client in self.connected_clients:
             client: ClientHandler.ClientHandler
-            client.sock.do_send(EndpointID.DELETED_PROJECT, msg)
+            client.sock.send_endp(msg)
 
     def broadcast_rename_project(self, project):
-        name_encoded = project.name.encode("utf-8")
-        msg = project.project_id + struct.pack("B", len(name_encoded)) + name_encoded
+        msg = RenamedProject(project.project_id, project.name)
         for client in self.connected_clients:
             client: ClientHandler.ClientHandler
-            client.sock.do_send(EndpointID.RENAMED_PROJECT, msg)
+            client.sock.send_endp(EndpointID.RENAMED_PROJECT, msg)
 
     def get_project_by_id(self, id_) -> ServerProject:
         for project in self.open_projects:
             if project.project_id == id_:
                 return project
-        return ServerProject.load_from_id(self.database, id_, self.config)
-
+        return ServerProject.load_from_id(self.database, id_)
