@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from server import Net
 from common.EndpointCallbackSocket import EndpointCallbackSocket, Endpoint
-from common.EndpointID import EndpointID, LoginErrorCodes
+from common.EndpointID import *
 from common.User import User
 from server.ServerProject import ServerProject, Folder
 
@@ -36,23 +36,23 @@ class ClientHandler(threading.Thread):
         if datetime.datetime.now(datetime.timezone.utc) - self.last_alive > datetime.timedelta(seconds=7):
             self.close()
             return
-        self.sock.do_send(EndpointID.ARE_U_ALIVE)
+        self.sock.do_send(EndpointID.ARE_U_ALIVE, AreYouAlive())
 
     def confirmed_alive(self, _msg):
         self.last_alive = datetime.datetime.now(datetime.timezone.utc)
 
     def setup_initial_endpoints(self):
         self.sock.set_endpoint(
-            EndpointID.CLOSE, Endpoint(self.close, max_data_size=0)
+            EndpointID.CLOSE, Endpoint(self.close, Close, max_data_size=0)
         )
         self.sock.set_endpoint(
-            EndpointID.I_AM_ALIVE, Endpoint(self.confirmed_alive, max_data_size=0)
+            EndpointID.I_AM_ALIVE, Endpoint(self.confirmed_alive, IAmAlive, max_data_size=0)
         )
         self.sock.set_endpoint(
-            EndpointID.PING, Endpoint(self.ping, max_data_size=0)
+            EndpointID.PING, Endpoint(self.ping, Ping, max_data_size=0)
         )
         self.sock.set_endpoint(
-            EndpointID.LOGIN, Endpoint(self.login, max_data_size=128)
+            EndpointID.LOGIN, Endpoint(self.login, LoginRequest, max_data_size=128)
         )
 
     def setup_endpoints_logged_in(self):
@@ -70,39 +70,21 @@ class ClientHandler(threading.Thread):
             Endpoint(self.rename_project, max_data_size=128)
         )
 
-    def login(self, msg: bytes):
-        if len(msg) < 2:
-            error_code = LoginErrorCodes.BAD_REQUEST  # Invalid message
-            self.sock.do_send(EndpointID.LOGIN_RESULT, struct.pack("B", error_code))
-            return
-        rdr = io.BytesIO(msg)
-
-        username_length, password_length = struct.unpack("BB", rdr.read(2))
-
-        if len(msg) != 2 + username_length + password_length:
-            error_code = LoginErrorCodes.BAD_REQUEST  # Invalid message
-            self.sock.do_send(EndpointID.LOGIN_RESULT, struct.pack("B", error_code))
-            return
-
-        username = rdr.read(username_length).decode("ascii")
-        password = rdr.read(password_length)
-
+    def login(self, login_request: LoginRequest):
         user = User()
-        if not user.load_from_database(self.master.database, username):
-            error_code = LoginErrorCodes.INVALID_CREDENTIALS  # Invalid message
-            self.sock.do_send(EndpointID.LOGIN_RESULT, struct.pack("B", error_code))
+        if not user.load_from_database(self.master.database, login_request.username):
+            self.sock.do_send(EndpointID.LOGIN_RESULT, LoginResult(LoginErrorCode.INVALID_CREDENTIALS))
             return
 
-        entered_hash = hashlib.sha256(user.password_salt + password).hexdigest()
+        entered_hash = hashlib.sha256(user.password_salt + login_request.password).hexdigest()
         if entered_hash != user.password_hash:
-            error_code = LoginErrorCodes.INVALID_CREDENTIALS
-            self.sock.do_send(EndpointID.LOGIN_RESULT, struct.pack("B", error_code))
+            self.sock.do_send(EndpointID.LOGIN_RESULT, LoginResult(LoginErrorCode.INVALID_CREDENTIALS))
             return
 
         self.user = user
         self.setup_endpoints_logged_in()
 
-        error_code = LoginErrorCodes.SUCCESSFUL
+        error_code = LoginErrorCode.SUCCESSFUL
         project_names: list[tuple[str, str]] = self.master.get_project_list()
         msg = struct.pack("BB", error_code, len(project_names))
         for project_name, project_id in project_names:
@@ -180,7 +162,7 @@ class ClientHandler(threading.Thread):
 
     def ping(self, _data: bytes):
         print(f"Client {self.sock_addr} sent a ping!")
-        self.sock.do_send(EndpointID.PONG)
+        self.sock.do_send(EndpointID.PONG, Pong())
 
     def run(self) -> None:
         while not self.exit_flag.is_set():
@@ -188,7 +170,7 @@ class ClientHandler(threading.Thread):
         self.close()
 
     def close(self, _msg=b""):
-        self.sock.do_send(EndpointID.CLOSE)
+        self.sock.do_send(EndpointID.CLOSE, Close())
         self.sock.close()
         self.exit_flag.set()
         self.master.close_client(self)

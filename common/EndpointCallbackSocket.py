@@ -8,12 +8,13 @@ import select
 import ssl
 import typing
 
-from common.EndpointID import EndpointID
+from common.EndpointID import EndpointID, EndpointConstructor
 
 
 @dataclasses.dataclass
 class Endpoint:
     callback: typing.Callable
+    constructor: type[EndpointConstructor]
     max_data_size: int = 4096
 
 
@@ -88,18 +89,21 @@ class EndpointCallbackSocket:
             self.sock_lock.release()
             print("RELEASED")
             print("Handling endpoint")
-            endpoint.callback(msg)
+            endpoint_constructed = endpoint.constructor.from_msg(msg)
+            if endpoint_constructed is not None:
+                endpoint.callback(endpoint_constructed)
         except Exception:
             logging.exception("Disconnected?")
             if self.sock_lock.locked():
                 self.sock_lock.release()
             self.close()
 
-    def do_send(self, endpoint_id: EndpointID, msg: bytes = b""):
+    def do_send(self, endpoint_id: EndpointID, constructed: EndpointConstructor):
         if self.closed:
             return
         self.sock_lock.acquire()
         try:
+            msg = constructed.to_bytes()
             msg_header = struct.pack("II", endpoint_id, len(msg))
             self.sock.sendall(msg_header + msg)
             self.sock_lock.release()
