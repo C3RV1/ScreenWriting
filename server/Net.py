@@ -140,7 +140,8 @@ class Net:
         return project_names
 
     def broadcast_created_project(self, project):
-        msg = struct.pack("B", len(project.name)) + project.name.encode("utf-8") + project.project_id
+        name_encoded = project.name.encode("utf-8")
+        msg = struct.pack("B", len(name_encoded)) + name_encoded + project.project_id
         for client in self.connected_clients:
             client: ClientHandler.ClientHandler
             client.sock.do_send(EndpointID.CREATED_PROJECT, msg)
@@ -151,6 +152,13 @@ class Net:
         for client in self.connected_clients:
             client: ClientHandler.ClientHandler
             client.sock.do_send(EndpointID.DELETED_PROJECT, msg)
+
+    def broadcast_rename_project(self, project):
+        name_encoded = project.name.encode("utf-8")
+        msg = project.project_id + struct.pack("B", len(name_encoded)) + name_encoded
+        for client in self.connected_clients:
+            client: ClientHandler.ClientHandler
+            client.sock.do_send(EndpointID.RENAMED_PROJECT, msg)
 
     def get_project_by_id(self, id_) -> ServerProject:
         for project in self.open_projects:

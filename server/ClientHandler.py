@@ -61,6 +61,14 @@ class ClientHandler(threading.Thread):
             EndpointID.CREATE_PROJECT,
             Endpoint(self.create_project, max_data_size=128)
         )
+        self.sock.set_endpoint(
+            EndpointID.DELETE_PROJECT,
+            Endpoint(self.delete_project, max_data_size=24)
+        )
+        self.sock.set_endpoint(
+            EndpointID.DELETE_PROJECT,
+            Endpoint(self.rename_project, max_data_size=128)
+        )
 
     def login(self, msg: bytes):
         if len(msg) < 2:
@@ -115,6 +123,12 @@ class ClientHandler(threading.Thread):
             return
         rdr = io.BytesIO(msg)
         project_name_length = struct.unpack("B", rdr.read(1))[0]
+        if project_name_length > self.master.config.MAX_PROJECT_NAME_LENGTH:
+            self.send_server_wide_error("Project name too long.")
+            return
+        if len(msg) != 1 + project_name_length:
+            self.send_server_wide_error("Bad create project request.")
+            return
         project_name = rdr.read(project_name_length).decode("utf-8")
 
         if ServerProject.exists_project(self.master.database, project_name):
@@ -139,6 +153,30 @@ class ClientHandler(threading.Thread):
             return
 
         self.master.remove_project(project)
+
+    def rename_project(self, msg: bytes):
+        if len(msg) < 25:
+            self.send_server_wide_error("Bad rename project request.")
+            return
+        rdr = io.BytesIO(msg)
+        project_id = rdr.read(24).decode("ascii")
+        new_name_length = struct.unpack("B", rdr.read(1))[0]
+        if new_name_length > self.master.config.MAX_PROJECT_NAME_LENGTH:
+            self.send_server_wide_error("Project name too long.")
+            return
+        if len(msg) != 25 + new_name_length:
+            self.send_server_wide_error("Bad rename project request.")
+            return
+        new_name = rdr.read(new_name_length).decode("utf-8")
+
+        project = self.master.get_project_by_id(project_id)
+
+        if project is None:
+            self.send_server_wide_error("Project doesn't exist.")
+            return
+
+        project.name = new_name
+        self.master.broadcast_rename_project(project)
 
     def ping(self, _data: bytes):
         print(f"Client {self.sock_addr} sent a ping!")

@@ -15,7 +15,7 @@ class EndpointID(enum.IntEnum):
     CREATE_PROJECT = 20  # Done
     DELETE_PROJECT = 30  # Done
     OPEN_PROJECT = 40
-    RENAME_PROJECT = 50
+    RENAME_PROJECT = 50  # Done
 
     SYNC_PROJECT = 41
 
