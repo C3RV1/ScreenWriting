@@ -2,6 +2,7 @@ import enum
 import re
 import struct
 import io
+from common.User import User
 
 
 class EndpointID(enum.IntEnum):
@@ -14,7 +15,7 @@ class EndpointID(enum.IntEnum):
     # LOGOUT_RESULT = 13
 
     # Logged in - Server wide updates
-    ERROR_FULFILLING_SERVER_REQUEST = 19
+    ERROR_FULFILLING_SERVER_REQUEST = 19  # Done
     CREATE_PROJECT = 20  # Done
     DELETE_PROJECT = 30  # Done
     OPEN_PROJECT = 40
@@ -22,10 +23,10 @@ class EndpointID(enum.IntEnum):
 
     SYNC_PROJECT = 41
 
-    CREATED_PROJECT = 22
-    DELETED_PROJECT = 32
+    CREATED_PROJECT = 22  # Done
+    DELETED_PROJECT = 32  # Done
     OPENED_PROJECT = 42
-    RENAMED_PROJECT = 52
+    RENAMED_PROJECT = 52  # Done
 
     # Project wide updates
     ERROR_FULFILLING_PROJECT_REQUEST = 99
@@ -128,21 +129,23 @@ class LoginErrorCode:
 class LoginResult(EndpointConstructor):
     ENDPOINT_ID = EndpointID.LOGIN_RESULT
 
-    def __init__(self, error_code, project_list):
+    def __init__(self, error_code, project_list, user):
         super().__init__()
         self.error_code: LoginErrorCode = error_code
         self.project_list = project_list
+        self.user: User = user
 
     def to_bytes(self) -> bytes:
         msg = struct.pack("B", self.error_code)
-        if self.error_code != 0:
+        if self.error_code != LoginErrorCode.SUCCESSFUL:
             return msg
 
+        msg += struct.pack("B", len(self.project_list))
         for project_name, project_id in self.project_list:
             encoded_project_name = project_name.encode("utf-8")
             msg += struct.pack("B", len(encoded_project_name)) + encoded_project_name
             msg += project_id.encode("ascii")  # 24 hex character
-        return msg
+        return msg + self.user.to_bytes_public()
 
     @classmethod
     def from_msg(cls, msg: bytes):
@@ -151,16 +154,16 @@ class LoginResult(EndpointConstructor):
         rdr = io.BytesIO(msg)
         error_code = struct.unpack("B", rdr.read(1))[0]
         if error_code != 0:
-            return cls(error_code, [])
+            return cls(error_code, [], None)
 
         project_list = []
         project_count = struct.unpack("B", rdr.read(1))[0]
         for i in range(project_count):
             project_name_length = struct.unpack("B", rdr.read(1))[0]
-            project_name = rdr.read(project_name_length)
-            project_id = rdr.read(24)
+            project_name = rdr.read(project_name_length).decode("utf-8")
+            project_id = rdr.read(24).decode("ascii")
             project_list.append((project_name, project_id))
-        return cls(error_code, project_list)
+        return cls(error_code, project_list, User.from_bytes_public(rdr))
 
 
 class AreYouAlive(EndpointConstructor):
@@ -238,10 +241,10 @@ class IdAndNameEndpoint(EndpointConstructor):
     def __init__(self, id_: str, new_name: str):
         super().__init__()
         self.id: str = id_
-        self.new_name = new_name
+        self.name = new_name
 
     def to_bytes(self) -> bytes:
-        name_encoded = self.new_name.encode("utf-8")
+        name_encoded = self.name.encode("utf-8")
         if not re.match("^[a-fA-F0-9]{24}$", self.id):
             raise ValueError
         return self.id.encode("ascii") + struct.pack("B", len(name_encoded)) + name_encoded

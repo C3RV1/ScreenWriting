@@ -6,6 +6,7 @@ import ssl
 import threading
 
 import pymongo
+import pymongo.errors
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import hashes
@@ -13,7 +14,7 @@ from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import serialization
 from server import Config, ClientHandler
 import select
-from common.EndpointID import *
+from common.EndpointConstructors import *
 from server.ServerProject import ServerProject
 
 
@@ -78,9 +79,22 @@ class Console(threading.Thread):
 class Net:
     def __init__(self):
         logging.info("Initializing server...")
+        self.exit_event = threading.Event()
+
+        self.connected_lock = threading.Lock()
+        self.connected_clients = []
+
+        self.open_projects: list[ServerProject] = []
+
         self.ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         self.mongo_client = pymongo.MongoClient("localhost", 27017)
         self.database = self.mongo_client["screenwriting"]
+        try:
+            self.database.command("ping")
+        except pymongo.errors.ConnectionFailure:
+            logging.critical("Couldn't connect to the MongoDB database!")
+            self.exit_event.set()
+            return
 
         logging.info("Checking certificates...")
         if not os.path.isfile("cert.pcm") or not os.path.isfile("key.pcm"):
@@ -92,14 +106,7 @@ class Net:
         self.bind_socket.bind(Config.ServerConfig.LISTENING_ADDR)
         self.bind_socket.listen(Config.ServerConfig.MAX_BIND)
 
-        self.connected_lock = threading.Lock()
-        self.connected_clients = []
-
-        self.exit_event = threading.Event()
-
         self.last_checked_alive = datetime.datetime.now(datetime.timezone.utc)
-
-        self.open_projects: list[ServerProject] = []
 
     def run(self):
         while not self.exit_event.is_set():
@@ -144,8 +151,8 @@ class Net:
             client.sock.send_endp(msg)
 
     def remove_project(self, project):
-        project.remove_from_database(self.database)
         msg = DeletedProject(project.project_id)
+        project.remove_from_database(self.database)
         for client in self.connected_clients:
             client: ClientHandler.ClientHandler
             client.sock.send_endp(msg)

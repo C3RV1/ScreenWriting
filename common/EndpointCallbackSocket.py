@@ -5,7 +5,7 @@ import threading
 import ssl
 import typing
 
-from common.EndpointID import EndpointID, EndpointConstructor
+from common.EndpointConstructors import EndpointID, EndpointConstructor
 
 
 @dataclasses.dataclass
@@ -39,8 +39,10 @@ class EndpointCallbackSocket:
 
     def throw_recv(self, size) -> None:
         while size > len(self.pending_data):
-            self.pending_data = self.sock.recv(4096)
-            size -= len(self.pending_data)
+            try:
+                self.pending_data += self.sock.recv(4096)
+            except ssl.SSLWantReadError:
+                pass
         self.pending_data = self.pending_data[size:]
 
     def waiting_header(self) -> bool:
@@ -48,7 +50,6 @@ class EndpointCallbackSocket:
             data = self.sock.recv(8)
             self.pending_data += data
             if len(data) == 0:
-                self.close()
                 return False
         except ssl.SSLWantReadError:
             return False
@@ -85,8 +86,10 @@ class EndpointCallbackSocket:
             endpoint_constructed = endpoint.constructor.from_msg(msg)
             if endpoint_constructed is not None:
                 endpoint.callback(endpoint_constructed)
+            else:
+                logging.warning(f"Endpoint {endpoint} couldn't be parsed.")
         except Exception:
-            logging.exception("Disconnected?")
+            logging.exception("Exception while performing receive.")
             if self.sock_lock.locked():
                 self.sock_lock.release()
             self.close()
@@ -101,7 +104,7 @@ class EndpointCallbackSocket:
             self.sock.sendall(msg_header + msg)
             self.sock_lock.release()
         except Exception:
-            logging.exception("Disconnected?")
+            logging.exception("Exception while sending to endpoint.")
             self.sock_lock.release()
             self.close()
 

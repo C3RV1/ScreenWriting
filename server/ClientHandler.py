@@ -1,9 +1,6 @@
 import datetime
 import hashlib
-import io
-import logging
 import ssl
-import struct
 import threading
 import typing
 from typing import TYPE_CHECKING
@@ -11,9 +8,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from server import Net
 from common.EndpointCallbackSocket import EndpointCallbackSocket, Endpoint
-from common.EndpointID import *
-from common.User import User
+from common.EndpointConstructors import *
+from server.ServerUser import ServerUser
 from server.ServerProject import ServerProject, Folder
+from server.Config import ServerConfig
 
 
 class ClientHandler(threading.Thread):
@@ -48,35 +46,30 @@ class ClientHandler(threading.Thread):
         self.sock.set_endpoint(Endpoint(self.login, LoginRequest))
 
     def setup_endpoints_logged_in(self):
-        self.sock.remove_endpoint(LoginResult)
+        self.sock.remove_endpoint(LoginRequest)
         self.sock.set_endpoint(Endpoint(self.create_project, CreateProject))
         self.sock.set_endpoint(Endpoint(self.delete_project, DeleteProject))
         self.sock.set_endpoint(Endpoint(self.rename_project, RenameProject))
 
     def login(self, login_request: LoginRequest):
-        user = User()
-        if not user.load_from_database(self.master.database, login_request.username):
-            self.sock.send_endp(LoginResult(LoginErrorCode.INVALID_CREDENTIALS, []))
+        user = ServerUser.load_from_database(self.master.database, login_request.username)
+        if user is None:
+            self.sock.send_endp(LoginResult(LoginErrorCode.INVALID_CREDENTIALS, [], None))
             return
 
         entered_hash = hashlib.sha256(user.password_salt + login_request.password).hexdigest()
         if entered_hash != user.password_hash:
-            self.sock.send_endp(LoginResult(LoginErrorCode.INVALID_CREDENTIALS, []))
+            self.sock.send_endp(LoginResult(LoginErrorCode.INVALID_CREDENTIALS, [], None))
             return
 
         self.user = user
         self.setup_endpoints_logged_in()
 
         project_names: list[tuple[str, str]] = self.master.get_project_list()
-        self.sock.send_endp(LoginResult(LoginErrorCode.SUCCESSFUL, project_names))
-
-    def send_server_wide_error(self, explanation: str):
-        explanation = explanation.encode("utf-8")
-        msg = struct.pack("H", len(explanation)) + explanation
-        self.sock.send_endp(EndpointID.ERROR_FULFILLING_SERVER_REQUEST, msg)
+        self.sock.send_endp(LoginResult(LoginErrorCode.SUCCESSFUL, project_names, user))
 
     def create_project(self, msg: CreateProject):
-        if len(msg.name) > self.master.config.MAX_PROJECT_NAME_LENGTH:
+        if len(msg.name) > ServerConfig.MAX_PROJECT_NAME_LENGTH:
             self.sock.send_endp(ServerScopeRequestError("Project name too long."))
             return
 
@@ -96,7 +89,7 @@ class ClientHandler(threading.Thread):
         self.master.remove_project(project)
 
     def rename_project(self, msg: RenameProject):
-        if msg.new_name > self.master.config.MAX_PROJECT_NAME_LENGTH:
+        if msg.name > ServerConfig.MAX_PROJECT_NAME_LENGTH:
             self.sock.send_endp(ServerScopeRequestError("Project name too long."))
             return
 
@@ -105,7 +98,7 @@ class ClientHandler(threading.Thread):
             self.sock.send_endp(ServerScopeRequestError("Project doesn't exist."))
             return
 
-        project.name = msg.new_name
+        project.name = msg.name
         self.master.broadcast_rename_project(project)
 
     def ping(self, _data: bytes):

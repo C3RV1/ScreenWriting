@@ -42,14 +42,16 @@ class ServerProject(Project):
                 "name": self.name
             },
             {
-                "filesystem": self.filesystem.to_dict(),
-                "trash_objects": {name: to.to_dict() for name, to in self.trash.items()}
+                "$set": {
+                    "filesystem": self.filesystem.to_dict(),
+                    "trash": {name: to.to_dict() for name, to in self.trash.items()}
+                }
             },
-            upsert=self.project_id
+            upsert=(self.project_id is None)
         )
         # If the project_id is None, then it did not previously exist.
         if self.project_id is None:
-            self.project_id = update_result.upserted_id
+            self.project_id = str(update_result.upserted_id)
 
     def save_filesystem(self, db: database.Database):
         if self.project_id is None:
@@ -60,7 +62,9 @@ class ServerProject(Project):
                 "_id": bson.ObjectId(self.project_id)
             },
             {
-                "filesystem": self.filesystem.to_dict(),
+                "$set": {
+                    "filesystem": self.filesystem.to_dict(),
+                }
             }
         )
 
@@ -73,16 +77,19 @@ class ServerProject(Project):
                 "_id": bson.ObjectId(self.project_id)
             },
             {
-                "trash_objects": {name: to.to_dict() for name, to in self.trash.items()}
+                "$set": {
+                    "trash": {name: to.to_dict() for name, to in self.trash.items()}
+                }
             }
         )
 
     def remove_from_database(self, db: database.Database):
+        print(f"Deleting project {self.project_id}")
         if self.project_id is None:
             return
         project_collection = db["projects"]
         project_collection.delete_one({
-            "_id": self.project_id
+            "_id": bson.ObjectId(self.project_id)
         })
 
         def walk_destroy_folder(f: Folder):
@@ -118,17 +125,17 @@ class ServerProject(Project):
         if project_entry is None:
             return None
         project = cls(project_name, Folder.from_dict(project_entry["filesystem"]),
-                      [TrashObject.from_dict(d) for d in project_entry["trash"]])
+                      {name: TrashObject.from_dict(to) for name, to in project_entry["trash"].items()})
         project.project_id = str(project_entry["_id"])
         return project
 
     @classmethod
-    def load_from_id(cls, db: database.Database, project_id):
+    def load_from_id(cls, db: database.Database, project_id: str):
         project_collection = db["projects"]
         project_entry = project_collection.find_one({"_id": bson.ObjectId(project_id)})
         if project_entry is None:
             return None
         project = cls(project_entry["name"], Folder.from_dict(project_entry["filesystem"]),
-                      [TrashObject.from_dict(d) for d in project_entry["trash"]])
+                      {name: TrashObject.from_dict(to) for name, to in project_entry["trash"].items()})
         project.project_id = project_id
         return project

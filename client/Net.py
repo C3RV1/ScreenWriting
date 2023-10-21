@@ -5,7 +5,7 @@ import base64
 import socket
 import typing
 
-from common.EndpointID import *
+from common.EndpointConstructors import *
 from common.EndpointCallbackSocket import EndpointCallbackSocket
 
 
