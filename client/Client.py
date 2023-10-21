@@ -5,6 +5,7 @@ from client.Net import Net
 from client.gui.LoginForm import LoginForm
 from client.gui.ProjectOpener import ProjectOpener
 from client.gui.ProjectCreator import ProjectCreator
+from client.gui.EditingText import EditingText
 from PySide6 import QtWidgets, QtCore
 from common.EndpointCallbackSocket import Endpoint
 from common.EndpointConstructors import *
@@ -44,6 +45,8 @@ class Client:
         self.project_opener: Optional[ProjectOpener] = None
         self.project_creator: Optional[ProjectCreator] = None
         self.logged_in_user: Optional[User] = None
+
+        self.editing_text = EditingText()
 
         self.state = ClientState.BOOT
 
@@ -97,6 +100,7 @@ class Client:
         self.recv_timer.timeout.connect(self.net.sock.do_receive)
         self.recv_timer.start()
         self.enter_state(ClientState.LOGGING_IN)
+        self.editing_text.show()
 
     def server_scope_request_error(self, msg: ServerScopeRequestError):
         QtWidgets.QMessageBox.critical(

@@ -1,31 +1,5 @@
 import re
-import typing
-from enum import IntEnum
-
-
-class BlockType(IntEnum):
-    ACTION = 0
-    SCENE_HEADING = 1
-    CHARACTER = 2
-    DIALOGUE = 3
-    PARENTHETICAL = 4
-    TRANSITION = 5
-    CENTERED = 6
-    PAGE_BREAK = 7
-    NOTE = 8
-    DUAL_DIALOGUE = 9
-
-
-class Block:
-    def __init__(self, block_type: BlockType, block_contents):
-        self.block_type: BlockType = block_type
-        self.block_contents: str = block_contents
-
-    def fix_contents(self):
-        self.block_contents = self.block_contents.replace("\n", " ")
-
-    def __repr__(self):
-        return f"{self.block_type.name} block: {repr(self.block_contents)}"
+from common.Blocks import Block, BlockType
 
 
 class TitlePage:
@@ -122,7 +96,7 @@ class FountainParser:
             self.blocks.append(Block(BlockType.CHARACTER, line[1:].strip()))
             return True
 
-        if re.match("^[A-Z0-9.()\\s]*[A-Z][A-Z0-9.()\\s]*$", line):
+        if re.match("^[^a-z]*[A-Z][^a-z]*$", line):
             if not self.remove_prev_empty():
                 return False
             self.blocks.append(Block(BlockType.CHARACTER, line.strip()))
@@ -210,6 +184,15 @@ class FountainParser:
                 continue
             if self.match_page_break():
                 continue
+            if self.match_centered():
+                self.line_i += 1
+                continue
+            if self.match_transition():
+                self.line_i += 1
+                continue
+            if self.match_scene():
+                self.line_i += 1
+                continue
             if self.match_dual_dialogue():
                 self.line_i += 1
                 self.parse_dialogue_and_parenthetical()
@@ -217,15 +200,6 @@ class FountainParser:
             if self.match_character():
                 self.line_i += 1
                 self.parse_dialogue_and_parenthetical()
-                continue
-            if self.match_scene():
-                self.line_i += 1
-                continue
-            if self.match_centered():
-                self.line_i += 1
-                continue
-            if self.match_transition():
-                self.line_i += 1
                 continue
             if self.match_note():
                 self.line_i += 1
