@@ -34,6 +34,33 @@ class LineBlock:
                 break
         return line_length
 
+    def cursor_pos_to_block_pos(self, cursor_line, cursor_char):
+        block_pos = 0
+        queue_style = self.line_broken_text.copy()
+        while cursor_line > 0 and queue_style:
+            v = queue_style.pop(0)
+            if v == Style.LINE_BREAK:
+                cursor_line -= 1
+            elif isinstance(v, str):
+                block_pos += len(v)
+            else:
+                block_pos += 1
+
+        while queue_style and cursor_char > 0:
+            v = queue_style.pop(0)
+            if isinstance(v, str):
+                if len(v) < cursor_char:
+                    cursor_char -= len(v)
+                    block_pos += len(v)
+                else:
+                    block_pos += cursor_char
+                    break
+            elif v == Style.LINE_BREAK:
+                continue
+            else:
+                block_pos += 1
+        return block_pos
+
     def update_line_height(self, last_block: Optional['StyledBlock']):
         length_wrap = {
             BlockType.CHARACTER: 58 - 43,

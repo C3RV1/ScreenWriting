@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from server import Net
 from common.EndpointCallbackSocket import EndpointCallbackSocket, Endpoint
-from common.EndpointConstructors import *
+from common.ServerEndpoints import *
+from common.LoginEndpoints import *
 from server.ServerUser import ServerUser
 from server.ServerProject import ServerProject, Folder
 from server.Config import ServerConfig

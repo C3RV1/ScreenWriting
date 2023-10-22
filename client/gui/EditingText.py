@@ -22,6 +22,7 @@ class Cursor:
         self.block_i = 0
         self.line_in_block = 0
         self.char_in_line = 0
+        self.shown = False
 
     def move_block(self, blocks: list[LineBlock], block_move):
         old_block = blocks[self.block_i]
@@ -80,6 +81,7 @@ class ScriptRenderer(QtWidgets.QWidget):
     PAGE_MARGIN = 50
     SPACING_BETWEEN_PAGES = 50
     LINE_SPACING = 3
+    X_PADDING = 30
 
     def __init__(self, update_scrollbar):
         super().__init__()
@@ -95,6 +97,7 @@ class ScriptRenderer(QtWidgets.QWidget):
 
         self.setFocusPolicy(QtGui.Qt.FocusPolicy.ClickFocus)
         self.line_height = 0
+        self.space_width = 0
 
     def render_until_page_end(self):
         pass
@@ -113,7 +116,7 @@ class ScriptRenderer(QtWidgets.QWidget):
     def render_more_contd(self, painter: QtGui.QPainter, pixel_start, page_i, is_more):
         if self.last_character_block == -1:
             return
-        x_pos = 30 + (43-9) * painter.fontMetrics().horizontalAdvance(" ")
+        x_pos = self.X_PADDING + CHARACTER_PADDING[BlockType.CHARACTER] * self.space_width
 
         character_block = self.blocks[self.last_character_block]
 
@@ -141,8 +144,8 @@ class ScriptRenderer(QtWidgets.QWidget):
                 if line_start > 0:
                     continue
                 if lines_until_cursor == 0 and cursor:
-                    if len(v) >= chars_until_cursor >= 0:
-                        cursor_start = x_pos + painter.fontMetrics().horizontalAdvance(v[:chars_until_cursor])
+                    if len(v) >= chars_until_cursor >= 0 and cursor.shown:
+                        cursor_start = x_pos + len(v[:chars_until_cursor]) * self.space_width
                         height = painter.fontMetrics().height()
                         painter.drawLine(cursor_start-1, y_pos-height+5, cursor_start-1, y_pos+2)
                     chars_until_cursor -= len(v)
@@ -152,7 +155,7 @@ class ScriptRenderer(QtWidgets.QWidget):
                 font.setUnderline(Style.UNDERLINE in current_style)
                 painter.setFont(font)
                 painter.drawText(x_pos, y_pos, v)
-                x_pos += painter.fontMetrics().horizontalAdvance(v)
+                x_pos += len(v) * self.space_width
                 continue
             if v == Style.LINE_BREAK:
                 if line_start <= 0:
@@ -179,9 +182,9 @@ class ScriptRenderer(QtWidgets.QWidget):
         page_start += self.SPACING_BETWEEN_PAGES / 2
 
         page_height = self.lines_to_pixels(LINES_PER_PAGE) + self.PAGE_MARGIN * 2
-        page_width = (55 + 19 + 9) * painter.fontMetrics().horizontalAdvance(" ")
+        page_width = (55 + 19 + 9) * self.space_width
 
-        painter.fillRect(30, page_start, page_width, page_height,
+        painter.fillRect(self.X_PADDING, page_start, page_width, page_height,
                          QtGui.QColor(50, 50, 50))
 
         painter.setPen(QtGui.QColor('white'))
@@ -193,7 +196,7 @@ class ScriptRenderer(QtWidgets.QWidget):
             elif block.block.block_type == BlockType.CHARACTER:
                 self.last_character_block = self.last_block
             characters_padding = CHARACTER_PADDING.get(block.block.block_type, DEFAULT_CHARACTER_PADDING)
-            x_pos = 30 + characters_padding * painter.fontMetrics().horizontalAdvance(" ")
+            x_pos = self.X_PADDING + characters_padding * self.space_width
 
             # Starting to render block
 
@@ -231,6 +234,7 @@ class ScriptRenderer(QtWidgets.QWidget):
         painter.begin(self)
         painter.setFont(QtGui.QFont("Courier", 12))
         self.line_height = painter.fontMetrics().height()
+        self.space_width = painter.fontMetrics().horizontalAdvance(" ")
 
         self.page_complete_height = self.lines_to_pixels(LINES_PER_PAGE)
         self.page_complete_height += self.PAGE_MARGIN * 2
@@ -274,6 +278,14 @@ class ScriptRenderer(QtWidgets.QWidget):
         if updated_cursor:
             self.ensure_cursor_visible()
             self.repaint()
+            return
+
+        # Insert key to block
+        block_pos = self.blocks[self.cursor.block_i].cursor_pos_to_block_pos(
+            self.cursor.line_in_block,
+            self.cursor.char_in_line
+        )
+        print(block_pos)
 
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
         delta = event.angleDelta().y() // 8
@@ -287,6 +299,47 @@ class ScriptRenderer(QtWidgets.QWidget):
         self.scroll_position = max(self.scroll_position, 0)
         self.update_scrollbar(0, self.page_complete_height * page_count - self.height(), self.scroll_position,
                               self.page_complete_height)
+
+    def focusInEvent(self, event: QtGui.QFocusEvent) -> None:
+        self.cursor.shown = True
+        self.repaint()
+
+    def focusOutEvent(self, event: QtGui.QFocusEvent) -> None:
+        self.cursor.shown = False
+        self.repaint()
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        pixel_position = event.position().y() + self.scroll_position + self.line_height
+        pixel_page = pixel_position // self.page_complete_height
+        line = pixel_page * LINES_PER_PAGE
+        padding_before_line = self.SPACING_BETWEEN_PAGES / 2
+        padding_before_line += self.PAGE_MARGIN
+        if padding_before_line <= pixel_page <= self.page_complete_height - padding_before_line:
+            line += LINES_PER_PAGE - 1
+        else:
+            line += (pixel_position % self.page_complete_height - padding_before_line) // self.lines_to_pixels(1)
+
+        spaces_from_left = (event.position().x() - self.X_PADDING) // self.space_width
+
+        for i, block in enumerate(self.blocks):
+            if block.ending_line > line:
+                self.cursor.block_i = i
+                self.cursor.line_in_block = line - block.line_start
+                self.cursor.line_in_block = max(self.cursor.line_in_block, 0)
+                padding = CHARACTER_PADDING.get(block.block.block_type, DEFAULT_CHARACTER_PADDING)
+                self.cursor.char_in_line = int(spaces_from_left - padding)
+                self.cursor.char_in_line = min(
+                    self.cursor.char_in_line,
+                    block.get_line_length(self.cursor.line_in_block)
+                )
+                self.cursor.char_in_line = max(self.cursor.char_in_line, 0)
+                break
+        else:
+            block = self.blocks[-1]
+            self.cursor.block_i = len(self.blocks) - 1
+            self.cursor.line_in_block = block.line_height - 1
+            self.cursor.char_in_line = block.get_line_length(self.cursor.line_in_block)
+        self.repaint()
 
 
 class EditingText(QtWidgets.QWidget):

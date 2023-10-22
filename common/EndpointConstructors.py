@@ -1,8 +1,4 @@
 import enum
-import re
-import struct
-import io
-from common.User import User
 
 
 class EndpointID(enum.IntEnum):
@@ -34,7 +30,8 @@ class EndpointID(enum.IntEnum):
     LEAVE_DOC = 110
     CREATE_DOC = 120
     DELETE_DOC = 130
-    CREATE_FOLDER = 140
+    DELETE_DOC_FROM_TRASH = 140
+    CREATE_FOLDER = 150
 
     SYNC_DOC = 101
 
@@ -42,24 +39,15 @@ class EndpointID(enum.IntEnum):
     LEFT_DOC = 112
     CREATED_DOC = 122
     DELETED_DOC = 132
-    CREATED_FOLDER = 142
+    DELETED_DOC_FROM_TRASH = 142
+    CREATED_FOLDER = 152
 
     # Doc wide updates
-    ERROR_FULFILLING_DOC_UPDATES = 299
-    ACQUIRE_BLOCK = 300
-    RELEASE_BLOCK = 310
-    UPDATE_BLOCK = 320
-    ADD_BLOCK = 330
-    REMOVE_BLOCK = 340
-    SYNC_BLOCK_REQUEST = 350
+    SCRIPT_PATCH = 300  # Done
 
-    SYNC_BLOCK = 351
+    SCRIPT_PATCH_ACK = 301  # Done
 
-    ACQUIRED_BLOCK = 302
-    RELEASED_BLOCK = 312
-    UPDATED_BLOCK = 322
-    BLOCK_ADDED = 332
-    REMOVED_BLOCK = 342
+    SCRIPT_PATCHED = 302  # Done
 
     # User updates - Broadcast project wide
     ERROR_FULFILLING_USER_REQUEST = 599
@@ -91,81 +79,6 @@ class EndpointConstructor:
         return cls()
 
 
-class LoginRequest(EndpointConstructor):
-    MAX_DATA_SIZE = 128
-    ENDPOINT_ID = EndpointID.LOGIN
-
-    def __init__(self, username: str, password: bytes):
-        super().__init__()
-        self.username: str = username
-        self.password: bytes = password
-
-    def to_bytes(self) -> bytes:
-        username_encoded = self.username.encode("ascii")
-        return struct.pack("BB", len(username_encoded), len(self.password)) + username_encoded + self.password
-
-    @classmethod
-    def from_msg(cls, msg: bytes):
-        if len(msg) < 2:
-            return None
-        rdr = io.BytesIO(msg)
-        username_length, password_length = struct.unpack("BB", rdr.read(2))
-
-        if len(msg) != 2 + username_length + password_length:
-            return None
-
-        return cls(
-            rdr.read(username_length).decode("ascii"),
-            rdr.read(password_length)
-        )
-
-
-class LoginErrorCode:
-    SUCCESSFUL = 0
-    BAD_REQUEST = 1
-    INVALID_CREDENTIALS = 2
-
-
-class LoginResult(EndpointConstructor):
-    ENDPOINT_ID = EndpointID.LOGIN_RESULT
-
-    def __init__(self, error_code, project_list, user):
-        super().__init__()
-        self.error_code: LoginErrorCode = error_code
-        self.project_list = project_list
-        self.user: User = user
-
-    def to_bytes(self) -> bytes:
-        msg = struct.pack("B", self.error_code)
-        if self.error_code != LoginErrorCode.SUCCESSFUL:
-            return msg
-
-        msg += struct.pack("B", len(self.project_list))
-        for project_name, project_id in self.project_list:
-            encoded_project_name = project_name.encode("utf-8")
-            msg += struct.pack("B", len(encoded_project_name)) + encoded_project_name
-            msg += project_id.encode("ascii")  # 24 hex character
-        return msg + self.user.to_bytes_public()
-
-    @classmethod
-    def from_msg(cls, msg: bytes):
-        if len(msg) < 1:
-            return None
-        rdr = io.BytesIO(msg)
-        error_code = struct.unpack("B", rdr.read(1))[0]
-        if error_code != 0:
-            return cls(error_code, [], None)
-
-        project_list = []
-        project_count = struct.unpack("B", rdr.read(1))[0]
-        for i in range(project_count):
-            project_name_length = struct.unpack("B", rdr.read(1))[0]
-            project_name = rdr.read(project_name_length).decode("utf-8")
-            project_id = rdr.read(24).decode("ascii")
-            project_list.append((project_name, project_id))
-        return cls(error_code, project_list, User.from_bytes_public(rdr))
-
-
 class AreYouAlive(EndpointConstructor):
     ENDPOINT_ID = EndpointID.ARE_U_ALIVE
     MAX_DATA_SIZE = 0
@@ -189,116 +102,3 @@ class Ping(EndpointConstructor):
 class Pong(EndpointConstructor):
     ENDPOINT_ID = EndpointID.PONG
     MAX_DATA_SIZE = 0
-
-
-class CreateProject(EndpointConstructor):
-    ENDPOINT_ID = EndpointID.CREATE_PROJECT
-    MAX_DATA_SIZE = 256
-
-    def __init__(self, name: str):
-        super().__init__()
-        self.name: str = name
-
-    def to_bytes(self) -> bytes:
-        name_encoded = self.name.encode("utf-8")
-        return struct.pack("B", len(name_encoded)) + name_encoded
-
-    @classmethod
-    def from_msg(cls, msg: bytes):
-        if len(msg) < 1:
-            return None
-        rdr = io.BytesIO(msg)
-        name_length = struct.unpack("B", rdr.read(1))[0]
-        if len(msg) != 1 + name_length:
-            return
-        return cls(rdr.read(name_length).decode("utf-8"))
-
-
-class IdEndpoint(EndpointConstructor):
-    MAX_DATA_SIZE = 24
-
-    def __init__(self, id_: str):
-        super().__init__()
-        self.id = id_
-
-    def to_bytes(self) -> bytes:
-        if not re.match("^[a-fA-F0-9]{24}$", self.id):
-            raise ValueError
-        return self.id.encode("ascii")
-
-    @classmethod
-    def from_msg(cls, msg: bytes):
-        if len(msg) != 24:
-            return None
-        if not re.match(b"^[a-fA-F0-9]{24}$", msg):
-            return None
-        return cls(msg.decode("ascii"))
-
-
-class IdAndNameEndpoint(EndpointConstructor):
-    MAX_DATA_SIZE = 256
-
-    def __init__(self, id_: str, new_name: str):
-        super().__init__()
-        self.id: str = id_
-        self.name = new_name
-
-    def to_bytes(self) -> bytes:
-        name_encoded = self.name.encode("utf-8")
-        if not re.match("^[a-fA-F0-9]{24}$", self.id):
-            raise ValueError
-        return self.id.encode("ascii") + struct.pack("B", len(name_encoded)) + name_encoded
-
-    @classmethod
-    def from_msg(cls, msg: bytes):
-        if len(msg) < 25:
-            return None
-        rdr = io.BytesIO(msg)
-        id_ = rdr.read(24)
-        if not re.match(b"^[a-fA-F0-9]{24}$", id_):
-            return None
-        name_length = struct.unpack("B", rdr.read(1))[0]
-        return cls(id_.decode("ascii"), rdr.read(name_length).decode("utf-8"))
-
-
-class DeleteProject(IdEndpoint):
-    ENDPOINT_ID = EndpointID.DELETE_PROJECT
-
-
-class RenameProject(IdAndNameEndpoint):
-    ENDPOINT_ID = EndpointID.RENAME_PROJECT
-
-
-class ServerScopeRequestError(EndpointConstructor):
-    ENDPOINT_ID = EndpointID.ERROR_FULFILLING_SERVER_REQUEST
-    MAX_DATA_SIZE = 256
-
-    def __init__(self, message: str):
-        super().__init__()
-        self.message = message
-
-    def to_bytes(self) -> bytes:
-        message_encoded = self.message.encode("utf-8")
-        return struct.pack("B", len(message_encoded)) + message_encoded
-
-    @classmethod
-    def from_msg(cls, msg: bytes):
-        if len(msg) < 1:
-            return None
-        rdr = io.BytesIO(msg)
-        message_length = struct.unpack("B", rdr.read(1))[0]
-        if len(msg) != 1 + message_length:
-            return None
-        return cls(rdr.read(message_length).decode("utf-8"))
-
-
-class CreatedProject(IdAndNameEndpoint):
-    ENDPOINT_ID = EndpointID.CREATED_PROJECT
-
-
-class RenamedProject(IdAndNameEndpoint):
-    ENDPOINT_ID = EndpointID.RENAMED_PROJECT
-
-
-class DeletedProject(IdEndpoint):
-    ENDPOINT_ID = EndpointID.DELETED_PROJECT

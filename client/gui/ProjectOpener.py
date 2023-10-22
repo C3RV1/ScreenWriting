@@ -25,12 +25,13 @@ class ProjectRename(QtWidgets.QWidget):
 class ProjectInList(QtWidgets.QWidget):
     EDIT_ICON = None
 
-    def __init__(self, parent, name, id_, on_remove, on_rename):
+    def __init__(self, parent, name, id_, on_remove, on_rename, on_open):
         super().__init__(parent)
 
         self.id_ = id_
         self.on_remove = on_remove
         self.on_rename = on_rename
+        self.on_open = on_open
 
         self.h_layout = QtWidgets.QHBoxLayout()
         self.setLayout(self.h_layout)
@@ -75,13 +76,17 @@ class ProjectInList(QtWidgets.QWidget):
             return
         self.on_remove(self.id_)
 
+    def do_open(self):
+        self.on_open(self.id_)
+
 
 class ProjectOpener(QtWidgets.QWidget):
-    def __init__(self, user: User, on_create, on_remove, on_rename, project_list: dict[str, str]):
+    def __init__(self, user: User, on_create, on_remove, on_rename, on_open, project_list: dict[str, str]):
         super().__init__()
         self.setWindowTitle("Projects")
         self.on_remove = on_remove
         self.on_rename = on_rename
+        self.on_open = on_open
 
         self.v_layout = QtWidgets.QVBoxLayout()
         self.setLayout(self.v_layout)
@@ -131,7 +136,7 @@ class ProjectOpener(QtWidgets.QWidget):
 
     def generate_list(self):
         for project_id, project_name in self.project_list:
-            project_in_list = ProjectInList(self, project_name, project_id, self.on_remove, self.on_rename)
+            project_in_list = ProjectInList(self, project_name, project_id, self.on_remove, self.on_rename, self.on_open)
             project_in_list.show()
             self.project_list_layout.addWidget(project_in_list)
             self.project_objects[project_id] = project_in_list
@@ -143,7 +148,7 @@ class ProjectOpener(QtWidgets.QWidget):
         self.project_list.sort(key=lambda x: x[1])
         index = self.project_list.index(obj)
 
-        project_in_list = ProjectInList(self, project_name, project_id, self.on_remove, self.on_rename)
+        project_in_list = ProjectInList(self, project_name, project_id, self.on_remove, self.on_rename, self.on_open)
         project_in_list.show()
 
         self.project_list_layout.insertWidget(index, project_in_list)

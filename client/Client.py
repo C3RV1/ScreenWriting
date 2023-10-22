@@ -8,7 +8,9 @@ from client.gui.ProjectCreator import ProjectCreator
 from client.gui.EditingText import EditingText
 from PySide6 import QtWidgets, QtCore
 from common.EndpointCallbackSocket import Endpoint
-from common.EndpointConstructors import *
+from common.ServerEndpoints import *
+from common.LoginEndpoints import *
+from common.Project import Project
 import qdarktheme
 
 
@@ -30,6 +32,7 @@ class ClientState(enum.Enum):
     LOGGING_IN = 1
     OPENING_PROJECT = 2
     CREATING_PROJECT = 3
+    OPENED_PROJECT = 4
 
 
 class Client:
@@ -45,6 +48,7 @@ class Client:
         self.project_opener: Optional[ProjectOpener] = None
         self.project_creator: Optional[ProjectCreator] = None
         self.logged_in_user: Optional[User] = None
+        self.current_project: Optional[Project] = None
 
         self.editing_text = EditingText()
 
@@ -137,6 +141,12 @@ class Client:
 
     def rename_project(self, id_, new_name):
         self.net.sock.send_endp(RenameProject(id_, new_name))
+
+    def open_project(self, id_):
+        self.net.sock.send_endp(OpenProject(id_))
+
+    def sync_project(self, msg: SyncProject):
+        self.enter_state(ClientState.OPENED_PROJECT)
 
     def enter_state(self, state: ClientState):
         self.leave_state()
