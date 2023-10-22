@@ -80,10 +80,16 @@ class FountainParser:
     def match_dual_dialogue(self):
         line = self.lines[self.line_i]
 
-        if (line.startswith("@") and line.endswith("^")) or re.match("^[A-Z0-9.()]*[A-Z][A-Z0-9.()]*\\s*\\^$", line):
+        if line.startswith("@") and line.endswith("^"):
             if not self.remove_prev_empty():
                 return False
-            self.blocks.append(Block(BlockType.DUAL_DIALOGUE, line[:-1].strip()))
+            self.blocks.append(Block.from_text(BlockType.DUAL_DIALOGUE, line[:-1].strip()))
+            return True
+
+        if re.match("^[^a-z]*[A-Z][^a-z]*\^$", line):
+            if not self.remove_prev_empty():
+                return False
+            self.blocks.append(Block.from_text(BlockType.DUAL_DIALOGUE, line[:-1].strip()))
             return True
         return False
 
@@ -93,13 +99,13 @@ class FountainParser:
         if line.startswith("@"):
             if not self.remove_prev_empty():
                 return False
-            self.blocks.append(Block(BlockType.CHARACTER, line[1:].strip()))
+            self.blocks.append(Block.from_text(BlockType.CHARACTER, line[1:].strip()))
             return True
 
         if re.match("^[^a-z]*[A-Z][^a-z]*$", line):
             if not self.remove_prev_empty():
                 return False
-            self.blocks.append(Block(BlockType.CHARACTER, line.strip()))
+            self.blocks.append(Block.from_text(BlockType.CHARACTER, line.strip()))
             return True
         return False
 
@@ -117,7 +123,7 @@ class FountainParser:
         if is_scene:
             if not self.remove_prev_and_next_empty():
                 return False
-            self.blocks.append(Block(BlockType.SCENE_HEADING, line))
+            self.blocks.append(Block.from_text(BlockType.SCENE_HEADING, line))
             return True
         return False
 
@@ -134,7 +140,7 @@ class FountainParser:
         if is_transition:
             if not self.remove_prev_and_next_empty():
                 return False
-            self.blocks.append(Block(BlockType.TRANSITION, line))
+            self.blocks.append(Block.from_text(BlockType.TRANSITION, line))
             return True
         return False
 
@@ -142,12 +148,12 @@ class FountainParser:
         line = self.lines[self.line_i]
         if line.startswith("!"):
             line = line[1:]
-        self.blocks.append(Block(BlockType.ACTION, line))
+        self.blocks.append(Block.from_text(BlockType.ACTION, line))
 
     def match_centered(self):
         line = self.lines[self.line_i]
         if line.startswith(">") and line.endswith("<"):
-            self.blocks.append(Block(BlockType.CENTERED, line[1:-1].strip()))
+            self.blocks.append(Block.from_text(BlockType.CENTERED, line[1:-1].strip()))
             return True
         return False
 
@@ -156,7 +162,7 @@ class FountainParser:
         if line.strip() == "===":
             if not self.remove_prev_and_next_empty():
                 return False
-            self.blocks.append(Block(BlockType.PAGE_BREAK, ""))
+            self.blocks.append(Block(BlockType.PAGE_BREAK, []))
             return True
         else:
             return False
@@ -166,7 +172,7 @@ class FountainParser:
         if line.startswith("// "):
             if not self.remove_prev_and_next_empty():
                 return False
-            self.blocks.append(Block(BlockType.NOTE, line[3:]))
+            self.blocks.append(Block.from_text(BlockType.NOTE, line[3:]))
             return True
         else:
             return False
@@ -214,12 +220,12 @@ class FountainParser:
             if line == "":
                 break
             if line.startswith("(") and line.endswith(")"):
-                self.blocks.append(Block(BlockType.PARENTHETICAL, line[1:-1]))
+                self.blocks.append(Block.from_text(BlockType.PARENTHETICAL, line[1:-1]))
                 continue
             if line == "  ":
-                self.blocks.append(Block(BlockType.DIALOGUE, ""))
+                self.blocks.append(Block(BlockType.DIALOGUE, []))
                 continue
-            self.blocks.append(Block(BlockType.DIALOGUE, line))
+            self.blocks.append(Block.from_text(BlockType.DIALOGUE, line))
 
     def serialize_dialogue_and_parenthetical(self):
         while self.block_i < len(self.blocks):
@@ -228,10 +234,10 @@ class FountainParser:
                 if block.block_contents == "":
                     self.lines.append("  ")
                 else:
-                    self.lines.append(block.block_contents)
+                    self.lines.append(block.fix_contents())
                 self.block_i += 1
             elif block.block_type == BlockType.PARENTHETICAL:
-                self.lines.append("(" + block.block_contents + ")")
+                self.lines.append("(" + block.fix_contents() + ")")
                 self.block_i += 1
             else:
                 break
@@ -244,35 +250,34 @@ class FountainParser:
             block = self.blocks[self.block_i]
             self.block_i += 1
 
-            block.fix_contents()
             if block.block_type == BlockType.ACTION:
-                self.lines.append("!" + block.block_contents)
+                self.lines.append("!" + block.fix_contents())
             elif block.block_type == BlockType.SCENE_HEADING:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append("." + block.block_contents)
+                self.lines.append("." + block.fix_contents())
                 self.lines.append("")
             elif block.block_type == BlockType.CHARACTER:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append("@" + block.block_contents)
+                self.lines.append("@" + block.fix_contents())
                 self.serialize_dialogue_and_parenthetical()
             elif block.block_type == BlockType.DUAL_DIALOGUE:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append("@" + block.block_contents + " ^")
+                self.lines.append("@" + block.fix_contents() + " ^")
                 self.serialize_dialogue_and_parenthetical()
             elif block.block_type == BlockType.TRANSITION:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append(">" + block.block_contents)
+                self.lines.append(">" + block.fix_contents())
                 self.lines.append("")
             elif block.block_type == BlockType.CENTERED:
-                self.lines.append(">" + block.block_contents + "<")
+                self.lines.append(">" + block.fix_contents() + "<")
             elif block.block_type == BlockType.PAGE_BREAK:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
@@ -283,15 +288,16 @@ class FountainParser:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append("// " + block.block_contents)
+                self.lines.append("// " + block.fix_contents())
                 self.lines.append("")
+        print(self.lines)
         return "\n".join(self.lines)
 
 
 if __name__ == '__main__':
     parser = FountainParser()
-    with open("test.fountain", "r") as f:
-        parser.parse(f.read())
+    with open("test.fountain", "rb") as f:
+        parser.parse(f.read().decode("utf-8"))
     parser2 = FountainParser()
     parser2.parse(parser.serialize())
     print(parser.serialize())
