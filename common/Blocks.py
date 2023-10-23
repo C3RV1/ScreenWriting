@@ -13,7 +13,7 @@ class BlockType(IntEnum):
     PARENTHETICAL = 4
     TRANSITION = 5
     CENTERED = 6
-    PAGE_BREAK = 7
+    SEPARATOR = 7
     NOTE = 8
     DUAL_DIALOGUE = 9
 
@@ -171,18 +171,20 @@ class Block:
         ranges = []
         block_queue = self.block_contents.copy()
         current_range = [0, 0]
+        block_pos = 0
         while end > 0 and block_queue:
             v = block_queue.pop(0)
             if isinstance(v, str):
                 if len(v) >= start:
                     range_start = max(start, 0)
-                    current_range[0] = range_start
+                    current_range[0] = block_pos + range_start
                     if len(v) > end:
                         current_range[1] += end - range_start
                     else:
                         current_range[1] += len(v) - range_start
                 end -= len(v)
                 start -= len(v)
+                block_pos += len(v)
             else:
                 if start <= 0:
                     ranges.append(current_range.copy())
@@ -190,6 +192,7 @@ class Block:
                     current_range[1] = 0
                 start -= 1
                 end -= 1
+                block_pos += 1
         ranges.append(current_range)
         return ranges
 

@@ -21,7 +21,7 @@ class EndpointCallbackSocket:
         self.pending_data = b""
         self.endpoints: dict[EndpointID, Endpoint] = {}
         self.on_close: typing.Callable = on_close
-        self.sock_lock = threading.Lock()
+        self.sock_lock = threading.RLock()
         self.closed = False
 
     def set_endpoint(self, endpoint: Endpoint):
@@ -59,59 +59,53 @@ class EndpointCallbackSocket:
         return len(self.pending_data) >= 8
 
     def do_receive(self):
-        try:
+        with self.sock_lock:
             if self.closed:
                 return
             if not self.waiting_header():
                 return
-            self.sock_lock.acquire()
-            msg_header = self.continuous_recv(8)
-            endpoint_id, msg_size = struct.unpack("!II", msg_header)
-            if endpoint_id not in self.endpoints:
-                logging.warning(f"Endpoint {endpoint_id} not found.")
-                self.throw_recv(msg_size)
-                self.sock_lock.release()
-                return
+            try:
+                msg_header = self.continuous_recv(8)
+                endpoint_id, msg_size = struct.unpack("!II", msg_header)
+                if endpoint_id not in self.endpoints:
+                    logging.warning(f"Endpoint {endpoint_id} not found.")
+                    self.throw_recv(msg_size)
+                    return
 
-            endpoint = self.endpoints[endpoint_id]
-            if msg_size > endpoint.constructor.MAX_DATA_SIZE > -1:
-                logging.warning(f"Exceeded endpoint {endpoint_id} size ({msg_size}, "
-                                f"max {endpoint.constructor.MAX_DATA_SIZE})")
-                self.throw_recv(msg_size)
-                self.sock_lock.release()
-                return
+                endpoint = self.endpoints[endpoint_id]
+                if msg_size > endpoint.constructor.MAX_DATA_SIZE > -1:
+                    logging.warning(f"Exceeded endpoint {endpoint_id} size ({msg_size}, "
+                                    f"max {endpoint.constructor.MAX_DATA_SIZE})")
+                    self.throw_recv(msg_size)
+                    return
 
-            msg = self.continuous_recv(msg_size)
-            self.sock_lock.release()
-            endpoint_constructed = endpoint.constructor.from_msg(msg)
-            if endpoint_constructed is not None:
-                endpoint.callback(endpoint_constructed)
-            else:
-                logging.warning(f"Endpoint {endpoint} couldn't be parsed.")
-        except Exception:
-            logging.exception("Exception while performing receive.")
-            if self.sock_lock.locked():
-                self.sock_lock.release()
-            self.close()
+                msg = self.continuous_recv(msg_size)
+                endpoint_constructed = endpoint.constructor.from_msg(msg)
+                if endpoint_constructed is not None:
+                    endpoint.callback(endpoint_constructed)
+                else:
+                    logging.warning(f"Endpoint {endpoint} couldn't be parsed.")
+            except Exception:
+                logging.exception("Exception while performing receive.")
+                self.close()
 
     def send_endp(self, constructed: EndpointConstructor):
         if self.closed:
             return
-        self.sock_lock.acquire()
-        try:
-            msg = constructed.to_bytes()
-            msg_header = struct.pack("!II", constructed.ENDPOINT_ID, len(msg))
-            self.sock.sendall(msg_header + msg)
-            self.sock_lock.release()
-        except Exception:
-            logging.exception("Exception while sending to endpoint.")
-            self.sock_lock.release()
-            self.close()
+        with self.sock_lock:
+            try:
+                msg = constructed.to_bytes()
+                msg_header = struct.pack("!II", constructed.ENDPOINT_ID, len(msg))
+                self.sock.sendall(msg_header + msg)
+            except Exception:
+                logging.exception("Exception while sending to endpoint.")
+                self.close()
 
     def close(self):
         if self.closed:
             return
         self.closed = True
-        self.sock.close()
-        if self.on_close:
-            self.on_close()
+        with self.sock_lock:
+            self.sock.close()
+            if self.on_close:
+                self.on_close()

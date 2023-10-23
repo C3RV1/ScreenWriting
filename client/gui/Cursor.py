@@ -3,14 +3,14 @@ from common.BlockPatches import *
 from common.Blocks import Block, BlockType
 
 CHARACTER_PADDING = {
-    BlockType.CHARACTER: 43-9,
-    BlockType.DIALOGUE: 29-9,
-    BlockType.PARENTHETICAL: 33-9,
-    BlockType.CENTERED: 43-9,
-    BlockType.DUAL_DIALOGUE: 43-9
+    BlockType.CHARACTER: 43-5,
+    BlockType.DIALOGUE: 29-5,
+    BlockType.PARENTHETICAL: 33-5,
+    BlockType.CENTERED: 43-5,
+    BlockType.DUAL_DIALOGUE: 43-5
 }
 
-DEFAULT_CHARACTER_PADDING = 19-9
+DEFAULT_CHARACTER_PADDING = 19-5
 
 
 class CursorSetPositionChange(BlockChanged):

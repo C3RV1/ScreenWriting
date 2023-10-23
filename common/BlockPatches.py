@@ -150,7 +150,8 @@ class BlockDataAddChange(BlockChanged):
                     block.block_contents.append(block_content[:insert_position])
                     block.block_contents.extend(self.data)
                     block.block_contents.append(block_content[insert_position:])
-                    block.block_contents.extend(block_contents_copy[i+1:])
+                    block.block_contents.extend(block_contents_copy[i + 1:])
+                    break
             else:
                 insert_position -= 1
                 if insert_position == 0:

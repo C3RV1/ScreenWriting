@@ -87,6 +87,8 @@ class LineBlock(Block):
                 else:
                     cursor_character += block_pos
                 block_pos -= len(v)
+            else:
+                block_pos -= 1
         return cursor_line, cursor_character
 
     def update_line_height(self, last_block: Optional['LineBlock']):
@@ -126,9 +128,9 @@ class LineBlock(Block):
             block_advances = self.block_type not in (
                 BlockType.DIALOGUE,
                 BlockType.PARENTHETICAL,
-                BlockType.PAGE_BREAK
+                BlockType.SEPARATOR
             )
-            if block_advances and last_block.block_type != BlockType.PAGE_BREAK:
+            if block_advances:
                 different_type = self.block_type != last_block.block_type
                 if self.block_type not in (BlockType.ACTION, BlockType.NOTE) or different_type:
                     self.line_start += 1
@@ -138,8 +140,9 @@ class LineBlock(Block):
         # Character must fit dialogue underneath
         if self.block_type == BlockType.CHARACTER and self.line_start % LINES_PER_PAGE > LINES_PER_PAGE - 2:
             self.line_start += LINES_PER_PAGE - self.line_start % LINES_PER_PAGE
-        elif self.block_type == BlockType.PAGE_BREAK:
-            self.line_height = LINES_PER_PAGE - self.line_start % LINES_PER_PAGE - 1
+        elif self.block_type == BlockType.SEPARATOR:
+            self.line_start += 1
+            self.line_height = 1
             return
 
         self.line_height = self.line_broken_text.count(Style.LINE_BREAK) + 1

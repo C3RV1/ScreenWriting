@@ -166,7 +166,7 @@ class FountainParser:
         if line.strip() == "====":
             if not self.remove_prev_and_next_empty():
                 return False
-            self.blocks.append(Block(BlockType.PAGE_BREAK, []))
+            self.blocks.append(Block(BlockType.SEPARATOR, []))
             return True
         else:
             return False
@@ -283,7 +283,7 @@ class FountainParser:
                 self.lines.append("")
             elif block.block_type == BlockType.CENTERED:
                 self.lines.append(">" + block.fix_contents() + "<")
-            elif block.block_type == BlockType.PAGE_BREAK:
+            elif block.block_type == BlockType.SEPARATOR:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")

@@ -17,7 +17,7 @@ class ServerProject(Project):
         super().__init__(name, filesystem, trash)
         self.opened_users: list['ClientHandler'] = []
         self.current_realtime_documents: list[RealTimeDocument] = []
-        self.project_lock = threading.Lock()
+        self.project_lock = threading.RLock()
 
     def update_trash(self):
         documents_to_eliminate = []

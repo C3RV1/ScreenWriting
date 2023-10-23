@@ -30,56 +30,56 @@ class RealTimeUser:
         )
 
     def updated_patch(self, patch: BlockPatch, branch_id, branch_timestamp):
-        self.rtd.document_lock.acquire()
-        frozen_branch = False
-        if branch_id == self.current_branch:
-            if branch_timestamp == self.rtd.document_timestamp:
-                # up to date
-                self.rtd.push_patch(patch, self)
-                self.patch_from_old_to_new = BlockPatch()
+        with self.rtd.document_lock:
+            frozen_branch = False
+            if branch_id == self.current_branch:
+                if branch_timestamp == self.rtd.document_timestamp:
+                    # up to date
+                    self.rtd.push_patch(patch, self)
+                    self.patch_from_old_to_new = BlockPatch()
+                else:
+                    # freeze branch
+                    self.frozen_branches_timestamps[self.current_branch] = branch_timestamp - 1
+                    self.current_branch += 1
+                    frozen_branch = True
             else:
-                # freeze branch
-                self.frozen_branches_timestamps[self.current_branch] = branch_timestamp - 1
-                self.current_branch += 1
                 frozen_branch = True
-        else:
-            frozen_branch = True
 
-        if frozen_branch:
-            # Frozen branch
+            if frozen_branch:
+                # Frozen branch
 
-            # Drop changes before the freezing point
-            self.patch_from_old_to_new.drop_changes_with_smaller_change_id(
-                self.frozen_branches_timestamps[branch_id]
-            )
-            for id_ in self.frozen_branches_timestamps.copy():
-                if id_ < branch_id:
-                    self.frozen_branches_timestamps.pop(id_, None)
+                # Drop changes before the freezing point
+                self.patch_from_old_to_new.drop_changes_with_smaller_change_id(
+                    self.frozen_branches_timestamps[branch_id]
+                )
+                for id_ in self.frozen_branches_timestamps.copy():
+                    if id_ < branch_id:
+                        self.frozen_branches_timestamps.pop(id_, None)
 
-            patch.rebase_to(self.patch_from_old_to_new)
-            self.rtd.push_patch(patch, self)
-        self.ack_patch(patch)
-        self.rtd.document_lock.release()
+                patch.rebase_to(self.patch_from_old_to_new)
+                self.rtd.push_patch(patch, self)
+            self.ack_patch(patch)
 
 
 class RealTimeDocument(Document):
     def __init__(self, file_id, blocks):
         super().__init__(file_id)
-        self.document_lock = threading.Lock()
+        self.document_lock = threading.RLock()
         self.blocks = blocks
 
         self.editing_users: list[RealTimeUser] = []
         self.document_timestamp = 0
 
     def push_patch(self, patch, rt_user):
-        patch = patch.copy()
-        patch.set_changes_id(self.document_timestamp)
-        patch.apply_on_blocks(self.blocks)
-        self.document_timestamp += 1
-        for editing_user in self.editing_users:
-            if editing_user is rt_user:
-                continue
-            editing_user.broadcast_patch(patch)
+        with self.document_lock:
+            patch = patch.copy()
+            patch.set_changes_id(self.document_timestamp)
+            patch.apply_on_blocks(self.blocks)
+            self.document_timestamp += 1
+            for editing_user in self.editing_users:
+                if editing_user is rt_user:
+                    continue
+                editing_user.broadcast_patch(patch)
 
     @classmethod
     def open_from_database(cls, db: database.Database, file_id: str,
@@ -104,11 +104,10 @@ class RealTimeDocument(Document):
         return cls(file_id, parser.blocks)
 
     def save(self):
-        self.document_lock.acquire()
-        parser = FountainParser()
-        parser.blocks = self.blocks
-        serialized = parser.serialize()
-        path = os.path.join("documents", self.file_id + ".fountain")
-        with open(path, "r") as f:
-            f.write(serialized)
-        self.document_lock.release()
+        with self.document_lock:
+            parser = FountainParser()
+            parser.blocks = self.blocks
+            serialized = parser.serialize()
+            path = os.path.join("documents", self.file_id + ".fountain")
+            with open(path, "r") as f:
+                f.write(serialized)

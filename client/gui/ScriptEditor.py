@@ -15,6 +15,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
     SPACING_BETWEEN_PAGES = 50
     LINE_SPACING = 3
     X_PADDING = 30
+    PAGE_SPACE_WIDTH = 55 + 19 + 9
 
     def __init__(self, update_scrollbar,
                  real_time_document: typing.Optional[RealTimeDocumentClient] = None):
@@ -77,7 +78,9 @@ class InnerScriptEditor(QtWidgets.QWidget):
         if not is_more:
             x_pos, _ = self.draw_with_style(painter, x_pos, y_pos, character_block.line_broken_text,
                                             max_line=1)
-            self.draw_with_style(painter, x_pos, y_pos, [" (CONT'D)"])
+            char_name = "".join([v for v in character_block.line_broken_text if isinstance(v, str)])
+            if not char_name.strip().endswith(" (CONT'D)"):
+                self.draw_with_style(painter, x_pos, y_pos, [" (CONT'D)"])
         else:
             self.draw_with_style(painter, x_pos, y_pos, ["(MORE)"])
 
@@ -119,6 +122,12 @@ class InnerScriptEditor(QtWidgets.QWidget):
                 if line_start > 0:
                     continue
 
+                base_weight = QtGui.QFont.Weight.Normal
+                bold_weight = QtGui.QFont.Weight.Bold
+                if block.block_type == BlockType.SCENE_HEADING:
+                    base_weight = QtGui.QFont.Weight.ExtraBold
+                    bold_weight = QtGui.QFont.Weight.Black
+
                 def draw_text(text, is_highlighted):
                     nonlocal x_pos, painter
                     font = painter.font()
@@ -132,7 +141,10 @@ class InnerScriptEditor(QtWidgets.QWidget):
                         pen.setColor(QtGui.QColor('white'))
                     painter.setPen(pen)
                     font.setItalic(Style.ITALICS in current_style)
-                    font.setBold(Style.BOLD in current_style)
+                    if Style.BOLD in current_style:
+                        font.setWeight(bold_weight)
+                    else:
+                        font.setWeight(base_weight)
                     font.setUnderline(Style.UNDERLINE in current_style)
                     painter.setFont(font)
                     painter.drawText(x_pos, y_pos, text)
@@ -141,15 +153,6 @@ class InnerScriptEditor(QtWidgets.QWidget):
                 if block.block_type == BlockType.PARENTHETICAL and line_start == 0:
                     x_pos -= self.space_width
                     draw_text("(", False)
-
-                """def draw_cursor(cursor_start_line, cursor_start_char):
-                    if cursor_start_line == 0 and self.show_cursors:
-                        if len(v) >= cursor_start_char >= 0:
-                            cursor_start_pos = x_pos + len(v[:cursor_start_char]) * self.space_width
-                            height = painter.fontMetrics().height()
-                            painter.drawLine(cursor_start_pos - 1, y_pos-height+5, cursor_start_pos - 1, y_pos+2)
-                draw_cursor(c_start_line, c_start_char)
-                draw_cursor(c_end_line, c_end_char)"""
 
                 # Draw text highlighted
                 if c_start_line == 0 == c_end_line:
@@ -212,7 +215,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
         page_start += self.SPACING_BETWEEN_PAGES / 2
 
         page_height = self.lines_to_pixels(LINES_PER_PAGE) + self.PAGE_MARGIN * 2
-        page_width = (55 + 19) * self.space_width
+        page_width = self.PAGE_SPACE_WIDTH * self.space_width
 
         painter.fillRect(self.X_PADDING, page_start, page_width, page_height,
                          QtGui.QColor(50, 50, 50))
@@ -224,11 +227,17 @@ class InnerScriptEditor(QtWidgets.QWidget):
 
         while self.last_block < len(self.blocks):
             block = self.blocks[self.last_block]
-            if block.block_type == BlockType.PAGE_BREAK:
-                line_in_page = block.line_start - LINES_PER_PAGE * page_i
+            if block.block_type == BlockType.SEPARATOR:
+                x_pos = self.X_PADDING + DEFAULT_CHARACTER_PADDING * self.space_width
+                y_pos = page_start + self.PAGE_MARGIN
+                line_in_page = block.line_start
                 line_in_page = max(0, line_in_page)
+                y_pos += self.lines_to_pixels(line_in_page)
+                painter.fillRect(x_pos + 10, int(y_pos), self.space_width * 55 - 10, 2, QtGui.QColor('white'))
                 if line_in_page + block.line_height >= LINES_PER_PAGE:
                     break
+                self.last_block += 1
+                continue
             elif block.block_type == BlockType.CHARACTER:
                 self.last_character_block = self.last_block
             characters_padding = CHARACTER_PADDING.get(block.block_type, DEFAULT_CHARACTER_PADDING)
@@ -329,11 +338,11 @@ class InnerScriptEditor(QtWidgets.QWidget):
                 cursor_view = self.starting_cursor - self.ending_cursor
                 patch = cursor_view.delete()
                 self.apply_patch(patch)
-                print("Deleting single character")
         else:
             if event.text() == "":
                 return
             cursor_view = self.starting_cursor - self.ending_cursor
+            print(cursor_view)
             patch = cursor_view.add_at_end(event.text())
             self.apply_patch(patch)
 
@@ -423,7 +432,8 @@ class InnerScriptEditor(QtWidgets.QWidget):
         self.repaint()
 
     def apply_patch(self, patch: BlockPatch):
-        self.rtd_c.send_change(patch)
+        if self.rtd_c:
+            self.rtd_c.send_change(patch)
 
         s_block_i, s_block_pos = self.starting_cursor.to_block_pos()
         e_block_i, e_block_pos = self.ending_cursor.to_block_pos()
@@ -436,7 +446,6 @@ class InnerScriptEditor(QtWidgets.QWidget):
 
         s_block_i, s_block_pos = patch.map_point(s_block_i, s_block_pos)
         e_block_i, e_block_pos = patch.map_point(e_block_i, e_block_pos)
-        print(s_block_i, s_block_pos, e_block_i, e_block_pos)
 
         self.starting_cursor.from_block_pos(s_block_i, s_block_pos)
         self.ending_cursor.from_block_pos(e_block_i, e_block_pos)
@@ -453,7 +462,7 @@ class ScriptEditor(QtWidgets.QWidget):
         self.setLayout(self.grid_layout)
 
         fountain_parser = FountainParser()
-        with open("Big Fish.fountain", "rb") as f:
+        with open("test2.fountain", "rb") as f:
             fountain_parser.parse(f.read().decode("utf-8"))
 
         render_blocks = []

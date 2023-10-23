@@ -82,10 +82,10 @@ class Net:
         logging.info("Initializing server...")
         self.exit_event = threading.Event()
 
-        self.connected_lock = threading.Lock()
+        self.connected_lock = threading.RLock()
         self.connected_clients = []
 
-        self.open_projects_lock = threading.Lock()
+        self.open_projects_lock = threading.RLock()
         self.open_projects: list[ServerProject] = []
 
         self.ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -117,9 +117,8 @@ class Net:
                 sock = self.ssl_context.wrap_socket(sock, server_side=True)
                 handler = ClientHandler.ClientHandler(sock, sock_addr, self)
                 handler.start()
-                self.connected_lock.acquire()
-                self.connected_clients.append(handler)
-                self.connected_lock.release()
+                with self.connected_lock:
+                    self.connected_clients.append(handler)
             for client in self.connected_clients.copy():
                 client: ClientHandler.ClientHandler
                 if not client.is_alive():
@@ -133,31 +132,25 @@ class Net:
             self.close_client(client)
 
     def close_client(self, client):
-        self.connected_lock.acquire()
-        if client not in self.connected_clients:
-            self.connected_lock.release()
-            return
-        if client.current_project:
-            client.current_project.project_lock.acquire()
-            client.current_project.opened_users.remove(client)
-            self.check_close_project(client.current_project)
-            client.current_project.project_lock.release()
-            client.current_project = None
-        logging.info(f"Closing client {client.sock_addr}...")
-        self.connected_clients.remove(client)
-        self.connected_lock.release()
-        client.close()
+        with self.connected_lock:
+            if client not in self.connected_clients:
+                return
+            if client.current_project:
+                client.current_project.opened_users.remove(client)
+                self.check_close_project(client.current_project)
+                client.current_project = None
+            logging.info(f"Closing client {client.sock_addr}...")
+            self.connected_clients.remove(client)
+            client.close()
 
     def check_close_project(self, project):
         if not project.opened_users:
-            self.open_projects_lock.acquire()
             self.close_project(project)
-            self.open_projects_lock.release()
 
     def close_project(self, project: ServerProject):
         logging.info(f"Closing project {project.name}")
-        project.save_to_database(self.database)
-        self.open_projects.remove(project)
+        with self.open_projects_lock:
+            project.save_to_database(self.database)
 
     def get_project_list(self) -> list[tuple[str, str]]:
         project_collection = self.database["projects"]
@@ -193,29 +186,23 @@ class Net:
         if client_handler.user is None:
             return None
 
-        self.open_projects_lock.acquire()
+        with self.open_projects_lock:
+            for project in self.open_projects:
+                if project.project_id == id_:
+                    break
+            else:
+                project = ServerProject.load_from_id(self.database, id_)
+                if project is None:
+                    return None
+                self.open_projects.append(project)
 
-        for project in self.open_projects:
-            if project.project_id == id_:
-                break
-        else:
-            project = ServerProject.load_from_id(self.database, id_)
-            if project is None:
-                self.open_projects_lock.acquire()
-                return None
-            self.open_projects.append(project)
-        try:
-            self.broadcast_opened_project(project, client_handler)
-            project.project_lock.acquire()  # TODO: Figure out how to handle locks.
-            project.opened_users.append(client_handler)
-        except Exception:
-            logging.critical("Failed broadcasting!")
-            logging.exception("Stacktrace:")
-        finally:
-            self.open_projects_lock.release()
-            project.project_lock.release()
+            with project.project_lock:
+                project.opened_users.append(client_handler)
+                self.broadcast_opened_project(project, client_handler)
         return project
 
     def broadcast_opened_project(self, project: ServerProject, client_handler: 'ClientHandler.ClientHandler'):
         for user in project.opened_users:
+            if user == client_handler:
+                continue
             user.sock.send_endp(OpenedProject(client_handler.user))
