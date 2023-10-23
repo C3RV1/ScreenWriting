@@ -112,7 +112,7 @@ class Net:
 
     def run(self):
         while not self.exit_event.is_set():
-            if select.select([self.bind_socket], [], [], 0)[0]:
+            if select.select([self.bind_socket], [], [], 0.2)[0]:
                 sock, sock_addr = self.bind_socket.accept()
                 sock = self.ssl_context.wrap_socket(sock, server_side=True)
                 handler = ClientHandler.ClientHandler(sock, sock_addr, self)

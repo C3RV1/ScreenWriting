@@ -36,6 +36,9 @@ class BlockChanged:
         # This function should not modify changes if they are not in their domain
         return other,
 
+    def map_point(self, block_i, block_pos):
+        return block_i, block_pos
+
     def partial_copy(self, start, end) -> 'BlockChanged':
         pass
 
@@ -54,6 +57,11 @@ class BlockAddChange(BlockChanged):
 
     def apply_to_blocks(self, blocks: list[Block]):
         blocks.insert(self.block_id, self.block)
+
+    def map_point(self, block_i, block_pos):
+        if block_i >= self.block_id:
+            return block_i + 1, block_pos
+        return block_i, block_pos
 
     def map(self, other: 'BlockChanged') -> tuple['BlockChanged']:
         other = other.copy()
@@ -81,6 +89,11 @@ class BlockRemoveChange(BlockChanged):
 
     def apply_to_blocks(self, blocks: list[Block]):
         blocks.pop(self.block_id)
+
+    def map_point(self, block_i, block_pos):
+        if block_i >= self.block_id:
+            return max(block_i - 1, 0), block_pos
+        return block_i, block_pos
 
     def map(self, other: 'BlockChanged') -> tuple['BlockChanged']:
         other = other.copy()
@@ -137,6 +150,22 @@ class BlockTextAddChange(BlockChanged):
                     block.block_contents.extend(self.data)
                     block.block_contents.extend(block_contents_copy[i:])
 
+    def size_data(self):
+        size = 0
+        for v in self.data:
+            if isinstance(v, str):
+                size += len(v)
+            else:
+                size += 1
+        return size
+
+    def map_point(self, block_i, block_pos):
+        if self.block_id != block_i:
+            return block_i, block_pos
+        if block_pos >= self.start:
+            return block_i, block_pos + self.size_data()
+        return block_i, block_pos
+
     def map(self, other: 'BlockChanged'):
         other = other.copy()
         if other.block_id != self.block_id:
@@ -144,11 +173,11 @@ class BlockTextAddChange(BlockChanged):
         if other.start <= other.end <= self.start:
             return other,
         if other.start >= self.start:
-            other.start += len(self.data)
+            other.start += self.size_data()
             return other,
         p1 = other.partial_copy(other.start, self.start)
         p2 = other.partial_copy(self.start, other.end)
-        p2.start += len(self.data)
+        p2.start += self.size_data()
         p2_mapped = p1.map(p2)  # Must map to previous action
         return [p1] + list(p2_mapped)
 
@@ -173,6 +202,15 @@ class BlockTextRemoveChange(BlockChanged):
         self.block_id = block_id
         self.start = start
         self.length = length
+
+    def map_point(self, block_i, block_pos):
+        if self.block_id != block_i:
+            return block_i, block_pos
+        if block_pos <= self.start:
+            return block_i, block_pos
+        if self.start <= block_pos <= self.end:
+            return block_i, self.start
+        return block_i, block_pos - self.length
 
     def map(self, other: 'BlockChanged'):
         other = other.copy()
@@ -260,6 +298,16 @@ class BlockPatch:
         else:
             self.change_queue.extend(change.change_queue)
 
+    def add_adapting(self, change: BlockChanged):
+        change = [change]
+        for _id, change_queue in self.change_queue:
+            change_copy = change.copy()
+            change = []
+            for change_ in change_copy:
+                change.extend(change_queue.map(change_))
+        for change_ in change:
+            self.add_change(change_)
+
     def remove_change(self, change_id: typing.Union['BlockPatch', int]):
         if isinstance(change_id, int):
             removed_list = []
@@ -278,6 +326,11 @@ class BlockPatch:
                 if id_ not in remove_ids:
                     removed_list.append((id_, change))
             self.change_queue = removed_list
+
+    def map_point(self, block_i, block_pos):
+        for _id, change in self.change_queue:
+            block_i, block_pos = change.map_point(block_i, block_pos)
+        return block_i, block_pos
 
     def rebase_to(self, other: 'BlockPatch'):
         r = self.change_queue.copy()
@@ -299,13 +352,14 @@ class BlockPatch:
             block_contents_copy = block.block_contents
             block.block_contents = []
             for b in block_contents_copy:
-                if not block.block_contents:
-                    block.block_contents.append(b)
-                    continue
-                if isinstance(b, str) and isinstance(block.block_contents[-1], str):
-                    block.block_contents[-1] += b
-                else:
-                    block.block_contents.append(b)
+                if block.block_contents:
+                    if isinstance(b, str) and isinstance(block.block_contents[-1], str):
+                        block.block_contents[-1] += b
+                        continue
+                if isinstance(b, str):
+                    if b == "":  # Skip empty string
+                        continue
+                block.block_contents.append(b)
 
     def copy(self):
         r = BlockPatch()

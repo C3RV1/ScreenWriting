@@ -18,7 +18,7 @@ class TitlePage:
                 values.append(first_value)
             while True:
                 line = lines[line_i]
-                if not line.startswith(" "):
+                if not line.startswith(" ") and not line.startswith("\t"):
                     break
                 line_i += 1
                 line = line.strip()
@@ -95,6 +95,10 @@ class FountainParser:
 
     def match_character(self):
         line = self.lines[self.line_i]
+        next_line = self.lines[self.line_i + 1] if self.line_i < len(self.lines) - 1 else None
+
+        if next_line is None or next_line == "":
+            return False
 
         if line.startswith("!"):
             if not self.remove_prev_empty():
@@ -133,7 +137,7 @@ class FountainParser:
         if line.startswith(">"):
             is_transition = True
             line = line[1:].strip()
-        elif line.isupper() and line.endswith("TO:"):
+        elif line.isupper() and (line.endswith("TO:") or line.endswith("IN:") or line.endswith("OUT:")):
             is_transition = True
             line = line.strip()
 
@@ -159,7 +163,7 @@ class FountainParser:
 
     def match_page_break(self):
         line = self.lines[self.line_i]
-        if line.strip() == "===":
+        if line.strip() == "====":
             if not self.remove_prev_and_next_empty():
                 return False
             self.blocks.append(Block(BlockType.PAGE_BREAK, []))
@@ -262,13 +266,13 @@ class FountainParser:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append("!" + block.fix_contents())
+                self.lines.append("@" + block.fix_contents())
                 self.serialize_dialogue_and_parenthetical()
             elif block.block_type == BlockType.DUAL_DIALOGUE:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append("!" + block.fix_contents() + " ^")
+                self.lines.append("@" + block.fix_contents() + " ^")
                 self.serialize_dialogue_and_parenthetical()
             elif block.block_type == BlockType.TRANSITION:
                 if len(self.lines) > 0:
@@ -283,24 +287,23 @@ class FountainParser:
                     if self.lines[-1] != "":
                         self.lines.append("")
                 self.lines.append("")
-                self.lines.append("===")
+                self.lines.append("====")
             elif block.block_type == BlockType.NOTE:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
                 self.lines.append("// " + block.fix_contents())
                 self.lines.append("")
-        print(self.lines)
         return "\n".join(self.lines)
 
 
 if __name__ == '__main__':
     parser = FountainParser()
-    with open("test.fountain", "rb") as f:
+    with open("Big Fish.fountain", "rb") as f:
         parser.parse(f.read().decode("utf-8"))
     parser2 = FountainParser()
     parser2.parse(parser.serialize())
     print(parser.serialize())
-    for i in range(len(parser.blocks)):
-        print(parser.blocks[i], parser2.blocks[i])
-    print(len(parser.blocks), len(parser2.blocks))
+    # for i in range(len(parser.blocks)):
+    #     print(parser.blocks[i], parser2.blocks[i])
+    # print(len(parser.blocks), len(parser2.blocks))

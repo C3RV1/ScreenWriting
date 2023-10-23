@@ -8,20 +8,60 @@ from client.gui.DisplayLayout import LineBlock
 from common.FountianParser import FountainParser
 
 CHARACTER_PADDING = {
-    BlockType.CHARACTER: 43,
-    BlockType.DIALOGUE: 29,
-    BlockType.PARENTHETICAL: 33,
-    BlockType.CENTERED: 43,
-    BlockType.DUAL_DIALOGUE: 43
+    BlockType.CHARACTER: 43-9,
+    BlockType.DIALOGUE: 29-9,
+    BlockType.PARENTHETICAL: 33-9,
+    BlockType.CENTERED: 43-9,
+    BlockType.DUAL_DIALOGUE: 43-9
 }
 
-DEFAULT_CHARACTER_PADDING = 19
+DEFAULT_CHARACTER_PADDING = 19-9
+
+
+class CursorViewRange:
+    def __init__(self, block_i: int, block_start: int, block_length: int):
+        self.block_i = block_i
+        self.block_start = block_start
+        self.block_length = block_length
+
+    @property
+    def block_end(self):
+        return self.block_start + self.block_length
+
+    def __repr__(self):
+        return f"({self.block_i}: {self.block_start}-{self.block_end})"
+
+
+class CursorView:
+    def __init__(self, blocks: list[Block], cursor_view_range: list[CursorViewRange]):
+        self.blocks = blocks
+        self.cursor_view_range: list[CursorViewRange] = cursor_view_range
+
+    def delete(self) -> BlockPatch:
+        patch = BlockPatch()
+        for view_range in self.cursor_view_range:
+            # Todo remove block if contents fully removed
+            patch.add_adapting(BlockTextRemoveChange(
+                view_range.block_start,
+                view_range.block_end - view_range.block_start,
+                view_range.block_i)
+            )
+        return patch
+
+    def add_at_end(self, new_text: str) -> BlockPatch:
+        patch = BlockPatch()
+        view_range = self.cursor_view_range[-1]
+        patch.add_change(BlockTextAddChange(view_range.block_end, [new_text], view_range.block_i))
+        return patch
+
+    def __repr__(self):
+        return f"<Cursor View into=[{', '.join([repr(r) for r in self.cursor_view_range])}>"
 
 
 class Cursor:
 
-    def __init__(self, blocks):
-        self.blocks = blocks
+    def __init__(self, blocks: list[LineBlock]):
+        self.blocks: list[LineBlock] = blocks
         self.block_i = 0
         self.line_in_block = 0
         self.char_in_line = 0
@@ -91,7 +131,39 @@ class Cursor:
 
         # These cursor views should provide an easy interface for adding
         # or removing characters...
-        pass
+        cursor_view_blocks = []
+        first_cursor = min(self, other).copy()
+        second_cursor = max(self, other).copy()
+
+        current_block = first_cursor.block_i
+        while current_block <= second_cursor.block_i:
+            block = self.blocks[first_cursor.block_i]
+
+            if current_block == first_cursor.block_i:
+                block_start = block.cursor_pos_to_block_pos(first_cursor.line_in_block, first_cursor.char_in_line)
+            else:
+                block_start = 0
+
+            if current_block == second_cursor.block_i:
+                block_end = block.cursor_pos_to_block_pos(second_cursor.line_in_block, second_cursor.char_in_line)
+            else:
+                block_end = block.get_block_len()
+
+            ranges = block.exclude_styles(block_start, block_end)
+            for range_ in ranges:
+                cursor_view_blocks.append(CursorViewRange(current_block, range_[0], range_[1]))
+
+            current_block += 1
+        return CursorView(self.blocks, cursor_view_blocks)
+
+    def to_block_pos(self):
+        block = self.blocks[self.block_i]
+        return self.block_i, block.cursor_pos_to_block_pos(self.line_in_block, self.char_in_line)
+
+    def from_block_pos(self, block_i, block_pos):
+        self.block_i = block_i
+        block = self.blocks[block_i]
+        self.line_in_block, self.char_in_line = block.block_pos_to_cursor_pos(block_pos)
 
     def __eq__(self, other: 'Cursor'):
         # Should compare the block_i, char_in_line, and line_in_block
@@ -151,6 +223,8 @@ class InnerScriptEditor(QtWidgets.QWidget):
         for i, block in enumerate(self.blocks):
             if block.block_type == BlockType.CHARACTER:
                 self.last_character_block = i
+            elif block.block_type not in (BlockType.DIALOGUE, BlockType.PARENTHETICAL):
+                self.last_character_block = -1
             if block.ending_line > page_i * LINES_PER_PAGE:
                 return i
         return len(self.blocks)
@@ -165,7 +239,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
         page_start = page_i * self.page_complete_height - pixel_start
         page_start += self.SPACING_BETWEEN_PAGES / 2
         y_pos = page_start + self.PAGE_MARGIN
-        y_pos += self.lines_to_pixels(LINES_PER_PAGE if not is_more else -1)
+        y_pos += self.lines_to_pixels(-1 if not is_more else LINES_PER_PAGE)
         if not is_more:
             x_pos, _ = self.draw_with_style(painter, x_pos, y_pos, character_block.line_broken_text,
                                             max_line=1)
@@ -191,20 +265,12 @@ class InnerScriptEditor(QtWidgets.QWidget):
         c_end_line, c_end_char = normalize_cursor_to_block(cursor_end)
         c_start_line -= line_start
         c_end_line -= line_start
+        block = self.blocks[self.last_block]
         while style_text and max_line != 0:
             v = style_text.pop(0)
             if isinstance(v, str):
                 if line_start > 0:
                     continue
-
-                def draw_cursor(cursor_start_line, cursor_start_char):
-                    if cursor_start_line == 0 and self.show_cursors:
-                        if len(v) >= cursor_start_char >= 0:
-                            cursor_start_pos = x_pos + len(v[:cursor_start_char]) * self.space_width
-                            height = painter.fontMetrics().height()
-                            painter.drawLine(cursor_start_pos - 1, y_pos-height+5, cursor_start_pos - 1, y_pos+2)
-                draw_cursor(c_start_line, c_start_char)
-                draw_cursor(c_end_line, c_end_char)
 
                 def draw_text(text, is_highlighted):
                     nonlocal x_pos, painter
@@ -224,6 +290,19 @@ class InnerScriptEditor(QtWidgets.QWidget):
                     painter.setFont(font)
                     painter.drawText(x_pos, y_pos, text)
                     x_pos += len(text) * self.space_width
+
+                if block.block_type == BlockType.PARENTHETICAL and line_start == 0:
+                    x_pos -= self.space_width
+                    draw_text("(", False)
+
+                def draw_cursor(cursor_start_line, cursor_start_char):
+                    if cursor_start_line == 0 and self.show_cursors:
+                        if len(v) >= cursor_start_char >= 0:
+                            cursor_start_pos = x_pos + len(v[:cursor_start_char]) * self.space_width
+                            height = painter.fontMetrics().height()
+                            painter.drawLine(cursor_start_pos - 1, y_pos-height+5, cursor_start_pos - 1, y_pos+2)
+                draw_cursor(c_start_line, c_start_char)
+                draw_cursor(c_end_line, c_end_char)
 
                 # Draw text highlighted
                 if c_start_line == 0 == c_end_line:
@@ -258,6 +337,9 @@ class InnerScriptEditor(QtWidgets.QWidget):
                     draw_text(v, True)
                 else:
                     draw_text(v, False)
+
+                if block.block_type == BlockType.PARENTHETICAL and len(style_text) == 0:
+                    draw_text(")", False)
             if v == Style.LINE_BREAK:
                 if line_start <= 0:
                     y_pos += self.lines_to_pixels(1)
@@ -284,7 +366,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
         page_start += self.SPACING_BETWEEN_PAGES / 2
 
         page_height = self.lines_to_pixels(LINES_PER_PAGE) + self.PAGE_MARGIN * 2
-        page_width = (55 + 19 + 12) * self.space_width
+        page_width = (55 + 19) * self.space_width
 
         painter.fillRect(self.X_PADDING, page_start, page_width, page_height,
                          QtGui.QColor(50, 50, 50))
@@ -297,7 +379,10 @@ class InnerScriptEditor(QtWidgets.QWidget):
         while self.last_block < len(self.blocks):
             block = self.blocks[self.last_block]
             if block.block_type == BlockType.PAGE_BREAK:
-                return page_start + page_height < self.height()
+                line_in_page = block.line_start - LINES_PER_PAGE * page_i
+                line_in_page = max(0, line_in_page)
+                if line_in_page + block.line_height >= LINES_PER_PAGE:
+                    break
             elif block.block_type == BlockType.CHARACTER:
                 self.last_character_block = self.last_block
             characters_padding = CHARACTER_PADDING.get(block.block_type, DEFAULT_CHARACTER_PADDING)
@@ -310,7 +395,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
             line_in_page = max(0, line_in_page)
 
             if line_in_block != 0 and block.block_type in (BlockType.DIALOGUE, BlockType.PARENTHETICAL):
-                self.render_more_contd(painter, pixel_start, page_i, True)
+                self.render_more_contd(painter, pixel_start, page_i, False)
 
             y_pos = page_start + self.PAGE_MARGIN
             y_pos += self.lines_to_pixels(line_in_page)
@@ -323,7 +408,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
                 self.last_block += 1
             else:
                 if block.block_type in (BlockType.DIALOGUE, BlockType.PARENTHETICAL):
-                    self.render_more_contd(painter, pixel_start, page_i, False)
+                    self.render_more_contd(painter, pixel_start, page_i, True)
 
             if line_in_page + block.line_height >= LINES_PER_PAGE:
                 break
@@ -384,6 +469,28 @@ class InnerScriptEditor(QtWidgets.QWidget):
             self.repaint()
             return
 
+        if event.key() == QtGui.Qt.Key.Key_Backspace:
+            if self.starting_cursor != self.ending_cursor:
+                print("Different: Deleting region")
+                cursor_view = self.starting_cursor - self.ending_cursor
+                patch = cursor_view.delete()
+                self.apply_patch(patch)
+            else:
+                if self.starting_cursor.char_in_line == 0 and self.starting_cursor.line_in_block == 0:
+                    # Remove block and join with prev
+                    return
+                self.starting_cursor.move_char(-1)
+                cursor_view = self.starting_cursor - self.ending_cursor
+                patch = cursor_view.delete()
+                self.apply_patch(patch)
+                print("Deleting single character")
+        else:
+            if event.text() == "":
+                return
+            cursor_view = self.starting_cursor - self.ending_cursor
+            patch = cursor_view.add_at_end(event.text())
+            self.apply_patch(patch)
+
         # TODO: Create cursor views into the blocks.
 
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
@@ -410,20 +517,32 @@ class InnerScriptEditor(QtWidgets.QWidget):
     def pixel_position_to_cursor_position(self, pos_x, pos_y, cursor: Cursor):
         pixel_position = pos_y + self.scroll_position + self.line_height
         pixel_page = pixel_position // self.page_complete_height
+        pixel_in_page = pixel_position % self.page_complete_height
         line = pixel_page * LINES_PER_PAGE
         padding_before_line = self.SPACING_BETWEEN_PAGES / 2
         padding_before_line += self.PAGE_MARGIN
-        if padding_before_line <= pixel_page <= self.page_complete_height - padding_before_line:
-            line += LINES_PER_PAGE - 1
-        else:
-            line += (pixel_position % self.page_complete_height - padding_before_line) // self.lines_to_pixels(1)
 
+        # Whether to accept that the next block line is over the current line
+        # Instead of current block ending after the line.
+        # This is done so that when you click between pages the cursor
+        # Snaps to the previous page.
+        accept_next_block_over = False
+        if pixel_in_page >= self.page_complete_height - padding_before_line:
+            line += LINES_PER_PAGE - 1
+            accept_next_block_over = True
+        elif padding_before_line <= pixel_in_page:
+            line += (pixel_in_page - padding_before_line) // self.lines_to_pixels(1)
+        line = min(line, LINES_PER_PAGE * (pixel_page + 1) - 1)
         spaces_from_left = (pos_x - self.X_PADDING) // self.space_width
 
         for i, block in enumerate(self.blocks):
-            if block.ending_line > line:
+            next_block = self.blocks[i+1] if i < len(self.blocks) - 1 else None
+            next_block_over = False
+            if next_block:
+                next_block_over = next_block.line_start > line
+            if block.ending_line > line or (next_block_over and accept_next_block_over):
                 cursor.block_i = i
-                cursor.line_in_block = line - block.line_start
+                cursor.line_in_block = min(line - block.line_start, block.line_height - 1)
                 cursor.line_in_block = max(cursor.line_in_block, 0)
                 padding = CHARACTER_PADDING.get(block.block_type, DEFAULT_CHARACTER_PADDING)
                 cursor.char_in_line = int(spaces_from_left - padding)
@@ -457,6 +576,25 @@ class InnerScriptEditor(QtWidgets.QWidget):
         self.ensure_cursor_visible()
         self.repaint()
 
+    def apply_patch(self, patch: BlockPatch):
+        s_block_i, s_block_pos = self.starting_cursor.to_block_pos()
+        e_block_i, e_block_pos = self.ending_cursor.to_block_pos()
+
+        patch.apply_on_blocks(self.blocks)
+
+        for block_i in range(len(self.blocks)):
+            last_block = self.blocks[block_i - 1] if block_i > 0 else None
+            self.blocks[block_i].update_line_height(last_block)
+
+        s_block_i, s_block_pos = patch.map_point(s_block_i, s_block_pos)
+        e_block_i, e_block_pos = patch.map_point(e_block_i, e_block_pos)
+        print(s_block_i, s_block_pos, e_block_i, e_block_pos)
+
+        self.starting_cursor.from_block_pos(s_block_i, s_block_pos)
+        self.ending_cursor.from_block_pos(e_block_i, e_block_pos)
+
+        self.repaint()
+
 
 class ScriptEditor(QtWidgets.QWidget):
     def __init__(self):
@@ -467,7 +605,7 @@ class ScriptEditor(QtWidgets.QWidget):
         self.setLayout(self.grid_layout)
 
         fountain_parser = FountainParser()
-        with open("test.fountain", "rb") as f:
+        with open("Big Fish.fountain", "rb") as f:
             fountain_parser.parse(f.read().decode("utf-8"))
 
         render_blocks = []
