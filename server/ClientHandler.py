@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from server import Net
 from common.EndpointCallbackSocket import EndpointCallbackSocket, Endpoint
-from common.ServerEndpoints import *
 from common.LoginEndpoints import *
+from common.ProjectEndpoints import *
 from server.ServerUser import ServerUser
 from server.ServerProject import ServerProject, Folder
 from server.Config import ServerConfig
@@ -118,6 +118,9 @@ class ClientHandler(threading.Thread):
 
         self.current_project = project
         self.sock.send_endp(SyncProject(project, [c.user for c in project.opened_users]))
+
+    def join_document(self, msg: JoinDoc):
+        pass
 
     def ping(self, _data: bytes):
         print(f"Client {self.sock_addr} sent a ping!")

@@ -79,12 +79,22 @@ def un_style_contents(block_contents: list):
 
     def add_style():
         nonlocal un_styled
-        if (Style.ITALICS in current_style) != (Style.ITALICS in style_since_last):
-            un_styled += "*"
-        elif (Style.BOLD in current_style) != (Style.BOLD in style_since_last):
-            un_styled += "**"
-        elif (Style.UNDERLINE in current_style) != (Style.UNDERLINE in style_since_last):
-            un_styled += "_"
+        styles = {
+            Style.ITALICS: "*",
+            Style.UNDERLINE: "_",
+            Style.BOLD: "**"
+        }
+        # When removing style add in reverse order
+        for style_, symbol in list(styles.items())[::-1]:
+            if style_ in current_style:
+                continue
+            if (style_ in current_style) != (style_ in style_since_last):
+                un_styled += symbol
+        for style_, symbol in styles.items():
+            if style_ not in current_style:
+                continue
+            if (style_ in current_style) != (style_ in style_since_last):
+                un_styled += symbol
 
     while style_queue:
         processing = style_queue.pop(0)

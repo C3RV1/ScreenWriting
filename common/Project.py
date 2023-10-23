@@ -6,6 +6,7 @@ import struct
 import typing
 if typing.TYPE_CHECKING:
     from common.FountianParser import Block
+from bson import ObjectId
 
 
 class Document:
@@ -15,10 +16,10 @@ class Document:
 
     @classmethod
     def from_dict(cls, d):
-        return cls(d["file_id"])
+        return cls(str(d["file_id"]))
 
     def to_dict(self):
-        return {"file_id": self.file_id}
+        return {"file_id": ObjectId(self.file_id)}
 
     def to_bytes(self) -> bytes:
         if len(self.file_id) != 24:

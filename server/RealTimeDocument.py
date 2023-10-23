@@ -1,10 +1,15 @@
 import threading
 import typing
+
+import bson
+
 if typing.TYPE_CHECKING:
     from server.ClientHandler import ClientHandler
 from common.FountianParser import FountainParser
 import os
 from common.ScriptEndpoints import *
+from common.Project import Document
+from pymongo import database
 
 
 class RealTimeUser:
@@ -57,10 +62,9 @@ class RealTimeUser:
         self.rtd.document_lock.release()
 
 
-class RealTimeDocument:
+class RealTimeDocument(Document):
     def __init__(self, file_id, blocks):
-        self.file_id = file_id
-
+        super().__init__(file_id)
         self.document_lock = threading.Lock()
         self.blocks = blocks
 
@@ -78,14 +82,33 @@ class RealTimeDocument:
             editing_user.broadcast_patch(patch)
 
     @classmethod
-    def open_from_file_id(cls, file_id):
+    def open_from_database(cls, db: database.Database, file_id: str,
+                           project_id: str):
+        document_collection = db["documents"]
+        document = document_collection.find_one(
+            {
+                "_id": bson.ObjectId(file_id)
+            }
+        )
+
+        if str(document["project_id"]) != project_id:
+            return None
+
         parser = FountainParser()
         path = os.path.join("documents", file_id + ".fountain")
         if not os.path.isfile(path):
             return None
+
         with open(path, "r") as f:
             parser.parse(f.read())
         return cls(file_id, parser.blocks)
 
     def save(self):
-        pass
+        self.document_lock.acquire()
+        parser = FountainParser()
+        parser.blocks = self.blocks
+        serialized = parser.serialize()
+        path = os.path.join("documents", self.file_id + ".fountain")
+        with open(path, "r") as f:
+            f.write(serialized)
+        self.document_lock.release()

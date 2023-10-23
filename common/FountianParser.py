@@ -80,10 +80,10 @@ class FountainParser:
     def match_dual_dialogue(self):
         line = self.lines[self.line_i]
 
-        if line.startswith("!") and line.endswith("^"):
+        if line.startswith("@") and line.endswith("^"):
             if not self.remove_prev_empty():
                 return False
-            self.blocks.append(Block.from_text(BlockType.DUAL_DIALOGUE, line[:-1].strip()))
+            self.blocks.append(Block.from_text(BlockType.DUAL_DIALOGUE, line[1:-1].strip()))
             return True
 
         if re.match("^[^a-z]*[A-Z][^a-z]*\^$", line):
@@ -100,7 +100,7 @@ class FountainParser:
         if next_line is None or next_line == "":
             return False
 
-        if line.startswith("!"):
+        if line.startswith("@"):
             if not self.remove_prev_empty():
                 return False
             self.blocks.append(Block.from_text(BlockType.CHARACTER, line[1:].strip()))
@@ -193,6 +193,7 @@ class FountainParser:
                 self.line_i += 1
                 continue
             if self.match_page_break():
+                self.line_i += 1
                 continue
             if self.match_centered():
                 self.line_i += 1
@@ -286,8 +287,8 @@ class FountainParser:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append("")
                 self.lines.append("====")
+                self.lines.append("")
             elif block.block_type == BlockType.NOTE:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
@@ -299,11 +300,11 @@ class FountainParser:
 
 if __name__ == '__main__':
     parser = FountainParser()
-    with open("Big Fish.fountain", "rb") as f:
+    with open("../test.fountain", "rb") as f:
         parser.parse(f.read().decode("utf-8"))
     parser2 = FountainParser()
     parser2.parse(parser.serialize())
     print(parser.serialize())
-    # for i in range(len(parser.blocks)):
-    #     print(parser.blocks[i], parser2.blocks[i])
-    # print(len(parser.blocks), len(parser2.blocks))
+    for i in range(len(parser.blocks)):
+        print(parser.blocks[i], parser2.blocks[i], parser.blocks[i].block_contents == parser2.blocks[i].block_contents)
+    print(len(parser.blocks), len(parser2.blocks))

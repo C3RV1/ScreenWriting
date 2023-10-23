@@ -34,6 +34,7 @@ class EndpointID(enum.IntEnum):
     DELETE_DOC = 130
     DELETE_DOC_FROM_TRASH = 140
     CREATE_FOLDER = 150
+    DELETE_FOLDER = 160
 
     SYNC_DOC = 101
 
@@ -43,9 +44,11 @@ class EndpointID(enum.IntEnum):
     DELETED_DOC = 132
     DELETED_DOC_FROM_TRASH = 142
     CREATED_FOLDER = 152
+    DELETED_FOLDER = 162
 
     # Doc wide updates
     SCRIPT_PATCH = 300  # Done
+    SAVE_DOCUMENT = 310
 
     SCRIPT_PATCH_ACK = 301  # Done
 
