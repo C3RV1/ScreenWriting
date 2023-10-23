@@ -22,7 +22,7 @@ class EndpointID(enum.IntEnum):
 
     CREATED_PROJECT = 22  # Done
     DELETED_PROJECT = 32  # Done
-    OPENED_PROJECT = 42
+    OPENED_PROJECT = 42  # Done
     RENAMED_PROJECT = 52  # Done
     CLOSED_PROJECT = 62
 

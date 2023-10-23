@@ -1,5 +1,5 @@
 import struct
-
+from common.Blocks import Block
 from common.ServerEndpoints import *
 
 
@@ -30,6 +30,35 @@ class JoinedDoc(EndpointConstructor):
             return
         username = rdr.read(username_len).decode("ascii")
         return cls(file_id, username)
+
+
+class SyncDoc(EndpointConstructor):
+    ENDPOINT_ID = EndpointID.SYNC_DOC
+
+    def __init__(self, file_id: str, document_timestamp: int, blocks: list[Block]):
+        super().__init__()
+        self.file_id = file_id
+        self.document_timestamp = document_timestamp
+        self.blocks = blocks
+
+    def to_bytes(self) -> bytes:
+        msg = self.file_id.encode("ascii")
+        msg += struct.pack("II", len(self.blocks), self.document_timestamp)
+        for block in self.blocks:
+            msg += block.to_bytes()
+        return msg
+
+    @classmethod
+    def from_msg(cls, msg: bytes):
+        if len(msg) < 24+8:
+            return None
+        rdr = io.BytesIO(msg)
+        file_id = rdr.read(24).decode("ascii")
+        block_count, document_timestamp = struct.unpack("II", rdr.read(8))
+        blocks = []
+        for i in range(block_count):
+            blocks.append(Block.from_bytes(rdr))
+        return cls(file_id, document_timestamp, blocks)
 
 
 class PathEndpoint(EndpointConstructor):

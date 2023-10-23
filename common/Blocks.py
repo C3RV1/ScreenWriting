@@ -164,7 +164,7 @@ class Block:
         while end > 0 and block_queue:
             v = block_queue.pop(0)
             if isinstance(v, str):
-                if len(v) > start:
+                if len(v) >= start:
                     range_start = max(start, 0)
                     current_range[0] = range_start
                     if len(v) > end:

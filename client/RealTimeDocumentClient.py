@@ -3,6 +3,7 @@ import copy
 from common.BlockPatches import Block
 from common.ScriptEndpoints import *
 from client.Net import Net
+from client.gui.Cursor import CursorSetPositionChange
 import threading
 
 
@@ -16,24 +17,29 @@ class RealTimeDocumentClient:
 
         self.file_id = file_id
         self.net = net
-        self.document_lock = threading.Lock()
+
+        self.on_rebase = None
+
+    def move_cursor(self, cursor_position: CursorSetPositionChange):
+        # TODO: Make cursor position also changes,
+        #       but do not send them to the server.
+        #       Probably add it to the end, removing if there
+        #       are any other previously.
+        #       ---
+        #       When rebasing, apply the last cursor set position.
+        pass
 
     def send_change(self, patch: BlockPatch):
-        self.document_lock.acquire()
         patch.apply_on_blocks(self.blocks)
         self.advance_patch.add_change(patch)
         self.document_timestamp += 1
         self.net.sock.send_endp(PatchScript(self.file_id, patch, self.branch_id, self.document_timestamp))
-        self.document_lock.release()
 
     def ack_change(self, msg: AckPatch):
-        self.document_lock.acquire()
         msg.patch.apply_on_blocks(self.blocks)
         self.advance_patch.remove_change(msg.patch)
-        self.document_lock.release()
 
     def got_change(self, msg: PatchedScript):
-        self.document_lock.acquire()
         msg.patch.apply_on_blocks(self.blocks)
         if msg.document_timestamp > self.document_timestamp:
             # Must rebase :D
@@ -41,5 +47,5 @@ class RealTimeDocumentClient:
             self.blocks_advanced: list[Block] = copy.deepcopy(self.blocks)
             self.advance_patch.rebase_to(msg.patch)
             self.advance_patch.apply_on_blocks(self.blocks_advanced)
+            self.on_rebase(self.blocks_advanced)
         self.document_timestamp = msg.document_timestamp
-        self.document_lock.release()

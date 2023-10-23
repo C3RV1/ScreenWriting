@@ -111,6 +111,10 @@ class FolderWidget(QtWidgets.QWidget):
         self.folders[name] = folder_widget
         self.inner_layout.addWidget(folder_widget)
 
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        if event.button() == QtGui.Qt.MouseButton.RightButton:
+            print(f"Right clicked folder {self.path}")
+
 
 class ProjectFileSystem(FolderWidget):
     def __init__(self, parent, project: Project, net: Net):

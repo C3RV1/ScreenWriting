@@ -22,12 +22,14 @@ class PatchScript(EndpointConstructor):
 
     @classmethod
     def from_msg(cls, msg: bytes):
-        if len(msg) < 4:
+        if len(msg) < 10:
             return None
         rdr = io.BytesIO(msg)
         path_len, branch_id, document_timestamp = struct.unpack("!HII", rdr.read(10))
         path = rdr.read(path_len).decode("ascii")
         patch = BlockPatch.from_bytes(rdr)
+        if patch is None:
+            return None
         return cls(path, patch, branch_id, document_timestamp)
 
 
@@ -53,6 +55,8 @@ class PatchedScript(EndpointConstructor):
         path_len, document_timestamp = struct.unpack("!HI", rdr.read(6))
         path = rdr.read(path_len).decode("ascii")
         patch = BlockPatch.from_bytes(rdr)
+        if patch is None:
+            return None
         return cls(path, patch, document_timestamp)
 
 
@@ -77,4 +81,6 @@ class AckPatch(EndpointConstructor):
         path_len = struct.unpack("!H", rdr.read(2))[0]
         path = rdr.read(path_len).decode("ascii")
         patch = BlockPatch.from_bytes(rdr)
+        if patch is None:
+            return None
         return cls(path, patch)

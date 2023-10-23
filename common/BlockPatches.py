@@ -13,10 +13,12 @@ class BlockChangeType(IntEnum):
     REMOVE_BLOCK = 2
     ADD_TEXT = 3
     REMOVE_TEXT = 4
+    CHANGED_TYPE = 5
 
 
 class BlockChanged:
     COUNT = 0
+    DELETE_WITH_BLOCK = True
 
     def __init__(self):
         self.start = 0
@@ -50,6 +52,8 @@ class BlockChanged:
 
 
 class BlockAddChange(BlockChanged):
+    DELETE_WITH_BLOCK = False
+
     def __init__(self, block_id, block: Block):
         super().__init__()
         self.block_id = block_id
@@ -83,6 +87,8 @@ class BlockAddChange(BlockChanged):
 
 
 class BlockRemoveChange(BlockChanged):
+    DELETE_WITH_BLOCK = False
+
     def __init__(self, block_id):
         super().__init__()
         self.block_id = block_id
@@ -98,7 +104,7 @@ class BlockRemoveChange(BlockChanged):
     def map(self, other: 'BlockChanged') -> tuple['BlockChanged']:
         other = other.copy()
         if other.block_id == self.block_id:
-            if not isinstance(other, BlockAddChange) and not isinstance(other, BlockRemoveChange):
+            if other.DELETE_WITH_BLOCK:
                 return tuple()
             return other,
         if other.block_id > self.block_id:
@@ -117,7 +123,9 @@ class BlockRemoveChange(BlockChanged):
         return BlockRemoveChange(block_id)
 
 
-class BlockTextAddChange(BlockChanged):
+class BlockDataAddChange(BlockChanged):
+    DELETE_WITH_BLOCK = True
+
     def __init__(self, position, data, block_id):
         super().__init__()
         self.block_id = block_id
@@ -133,9 +141,9 @@ class BlockTextAddChange(BlockChanged):
             if isinstance(block_content, str):
                 insert_position -= len(block_content)
                 if insert_position == 0:
-                    block.block_contents = block_contents_copy[:i]
+                    block.block_contents = block_contents_copy[:i+1]
                     block.block_contents.extend(self.data)
-                    block.block_contents.extend(block_contents_copy[i:])
+                    block.block_contents.extend(block_contents_copy[i+1:])
                     break
                 elif insert_position <= 0:
                     block.block_contents = block_contents_copy[:i]
@@ -185,7 +193,7 @@ class BlockTextAddChange(BlockChanged):
         raise ValueError("There should never be a partial copy of an add block!")
 
     def copy(self):
-        return BlockTextAddChange(self.start, self.data, self.block_id)
+        return BlockDataAddChange(self.start, self.data, self.block_id)
 
     def to_bytes(self):
         return struct.pack("!BIH", BlockChangeType.ADD_BLOCK, self.block_id, self.start) + encode_styled(self.data)
@@ -193,10 +201,12 @@ class BlockTextAddChange(BlockChanged):
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
         block_id, start = struct.pack("!IH", rdr.read(6))
-        return BlockTextAddChange(start, decode_styled(rdr), block_id)
+        return BlockDataAddChange(start, decode_styled(rdr), block_id)
 
 
-class BlockTextRemoveChange(BlockChanged):
+class BlockDataRemoveChange(BlockChanged):
+    DELETE_WITH_BLOCK = True
+
     def __init__(self, start, length, block_id):
         super().__init__()
         self.block_id = block_id
@@ -261,10 +271,10 @@ class BlockTextRemoveChange(BlockChanged):
         block.block_contents.extend(block_contents_copy)
 
     def copy(self):
-        return BlockTextRemoveChange(self.start, self.length, self.block_id)
+        return BlockDataRemoveChange(self.start, self.length, self.block_id)
 
     def partial_copy(self, start, end) -> 'BlockChanged':
-        return BlockTextRemoveChange(start, end - start, self.block_id)
+        return BlockDataRemoveChange(start, end - start, self.block_id)
 
     def to_bytes(self):
         return struct.pack("!BIHH", BlockChangeType.ADD_BLOCK, self.block_id, self.start, self.length)
@@ -272,7 +282,32 @@ class BlockTextRemoveChange(BlockChanged):
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
         block_id, start, length = struct.pack("!IHH", rdr.read(8))
-        return BlockTextRemoveChange(start, length, block_id)
+        return BlockDataRemoveChange(start, length, block_id)
+
+
+class BlockChangedType(BlockChanged):
+    DELETE_WITH_BLOCK = True
+
+    def __init__(self, block_id, block_type):
+        super().__init__()
+        self.block_id = block_id
+        self.block_type = block_type
+        self.start = 0
+        self.length = 0
+
+    def apply_to_blocks(self, blocks: list[Block]):
+        blocks[self.block_id].block_type = self.block_type
+
+    def copy(self):
+        return BlockChangedType(self.block_id, self.block_type)
+
+    def to_bytes(self):
+        return struct.pack("!BIB", BlockChangeType.CHANGED_TYPE, self.block_id, self.block_type)
+
+    @classmethod
+    def from_bytes(cls, rdr: io.BytesIO):
+        block_id, block_type = struct.unpack("!IB", rdr.read(5))
+        return BlockChangedType(block_id, block_type)
 
 
 def change_from_bytes(rdr: io.BytesIO):
@@ -282,15 +317,29 @@ def change_from_bytes(rdr: io.BytesIO):
     if change_type == BlockChangeType.REMOVE_BLOCK:
         return BlockRemoveChange.from_bytes(rdr)
     if change_type == BlockChangeType.ADD_TEXT:
-        return BlockTextAddChange.from_bytes(rdr)
+        return BlockDataAddChange.from_bytes(rdr)
     if change_type == BlockChangeType.REMOVE_TEXT:
-        return BlockTextRemoveChange.from_bytes(rdr)
-    return Block.from_bytes(rdr)
+        return BlockDataRemoveChange.from_bytes(rdr)
+    if change_type == BlockChangeType.CHANGED_TYPE:
+        return BlockChangedType.from_bytes(rdr)
+    return None
 
 
 class BlockPatch:
     def __init__(self):
         self.change_queue: list[tuple[int, BlockChanged]] = []
+
+    def set_changes_id(self, change_id):
+        change_queue = self.change_queue
+        self.change_queue = []
+        for id_, change in change_queue:
+            self.change_queue.append((change_id, change))
+
+    def drop_changes_with_smaller_change_id(self, change_id):
+        for v in self.change_queue.copy():
+            id_, _change = v
+            if id_ < change_id:
+                self.change_queue.remove(v)
 
     def add_change(self, change: typing.Union[BlockChanged, 'BlockPatch']):
         if isinstance(change, BlockChanged):
@@ -378,7 +427,9 @@ class BlockPatch:
         change_queue = []
         for i in range(changes_length):
             id_ = struct.unpack("!I", rdr.read(4))
-            change = Block
+            change = change_from_bytes(rdr)
+            if change is None:
+                return None
             change_queue.append((id_, change))
         patch = cls()
         patch.change_queue = change_queue
@@ -405,16 +456,16 @@ if __name__ == '__main__':
     client2_advanced_changed = BlockPatch()
 
     # First client1 does its changes
-    change1 = BlockTextAddChange(1, "hello", 1)
+    change1 = BlockDataAddChange(1, "hello", 1)
     change1.apply_to_blocks(block_client_advanced)
     client1_advanced_changed.add_change(change1)
 
-    change1_1 = BlockTextRemoveChange(1, 2, 1)
+    change1_1 = BlockDataRemoveChange(1, 2, 1)
     change1_1.apply_to_blocks(block_client_advanced)
     client1_advanced_changed.add_change(change1_1)
 
     # Then client2
-    change2 = BlockTextAddChange(2, "trying", 1)
+    change2 = BlockDataAddChange(2, "trying", 1)
     change2.apply_to_blocks(block_client2_advanced)
     client2_advanced_changed.add_change(change2)
 
