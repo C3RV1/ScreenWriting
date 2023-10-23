@@ -66,7 +66,7 @@ class EndpointCallbackSocket:
                 return
             self.sock_lock.acquire()
             msg_header = self.continuous_recv(8)
-            endpoint_id, msg_size = struct.unpack("II", msg_header)
+            endpoint_id, msg_size = struct.unpack("!II", msg_header)
             if endpoint_id not in self.endpoints:
                 logging.warning(f"Endpoint {endpoint_id} not found.")
                 self.throw_recv(msg_size)
@@ -100,7 +100,7 @@ class EndpointCallbackSocket:
         self.sock_lock.acquire()
         try:
             msg = constructed.to_bytes()
-            msg_header = struct.pack("II", constructed.ENDPOINT_ID, len(msg))
+            msg_header = struct.pack("!II", constructed.ENDPOINT_ID, len(msg))
             self.sock.sendall(msg_header + msg)
             self.sock_lock.release()
         except Exception:

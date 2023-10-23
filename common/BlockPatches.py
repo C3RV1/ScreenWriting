@@ -43,7 +43,7 @@ class BlockChanged:
         raise NotImplemented()
 
     def to_bytes(self):
-        return struct.pack("B", BlockChangeType.NOTHING)
+        return struct.pack("!B", BlockChangeType.NOTHING)
 
 
 class BlockAddChange(BlockChanged):
@@ -65,11 +65,11 @@ class BlockAddChange(BlockChanged):
         return BlockAddChange(self.block_id, self.block)
 
     def to_bytes(self):
-        return struct.pack("BI", BlockChangeType.ADD_BLOCK, self.block_id) + self.block.to_bytes()
+        return struct.pack("!BI", BlockChangeType.ADD_BLOCK, self.block_id) + self.block.to_bytes()
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        block_id = struct.pack("I", rdr.read(4))
+        block_id = struct.pack("!I", rdr.read(4))
         block = Block.from_bytes(rdr)
         return BlockAddChange(block_id, block)
 
@@ -96,11 +96,11 @@ class BlockRemoveChange(BlockChanged):
         return BlockRemoveChange(self.block_id)
 
     def to_bytes(self):
-        return struct.pack("BI", BlockChangeType.ADD_BLOCK, self.block_id)
+        return struct.pack("!BI", BlockChangeType.ADD_BLOCK, self.block_id)
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        block_id = struct.pack("I", rdr.read(4))
+        block_id = struct.pack("!I", rdr.read(4))
         return BlockRemoveChange(block_id)
 
 
@@ -159,11 +159,11 @@ class BlockTextAddChange(BlockChanged):
         return BlockTextAddChange(self.start, self.data, self.block_id)
 
     def to_bytes(self):
-        return struct.pack("BIH", BlockChangeType.ADD_BLOCK, self.block_id, self.start) + encode_styled(self.data)
+        return struct.pack("!BIH", BlockChangeType.ADD_BLOCK, self.block_id, self.start) + encode_styled(self.data)
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        block_id, start = struct.pack("IH", rdr.read(6))
+        block_id, start = struct.pack("!IH", rdr.read(6))
         return BlockTextAddChange(start, decode_styled(rdr), block_id)
 
 
@@ -229,16 +229,16 @@ class BlockTextRemoveChange(BlockChanged):
         return BlockTextRemoveChange(start, end - start, self.block_id)
 
     def to_bytes(self):
-        return struct.pack("BIHH", BlockChangeType.ADD_BLOCK, self.block_id, self.start, self.length)
+        return struct.pack("!BIHH", BlockChangeType.ADD_BLOCK, self.block_id, self.start, self.length)
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        block_id, start, length = struct.pack("IHH", rdr.read(8))
+        block_id, start, length = struct.pack("!IHH", rdr.read(8))
         return BlockTextRemoveChange(start, length, block_id)
 
 
 def change_from_bytes(rdr: io.BytesIO):
-    change_type = struct.unpack("B", rdr.read(1))[0]
+    change_type = struct.unpack("!B", rdr.read(1))[0]
     if change_type == BlockChangeType.ADD_BLOCK:
         return BlockAddChange.from_bytes(rdr)
     if change_type == BlockChangeType.REMOVE_BLOCK:
@@ -313,17 +313,17 @@ class BlockPatch:
         return r
 
     def to_bytes(self) -> bytes:
-        msg = struct.pack("H", len(self.change_queue))
+        msg = struct.pack("!H", len(self.change_queue))
         for id_, changed in self.change_queue:
-            msg += struct.pack("I", id_) + changed.to_bytes()
+            msg += struct.pack("!I", id_) + changed.to_bytes()
         return msg
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        changes_length = struct.unpack("H", rdr.read(1))[0]
+        changes_length = struct.unpack("!H", rdr.read(1))[0]
         change_queue = []
         for i in range(changes_length):
-            id_ = struct.unpack("I", rdr.read(4))
+            id_ = struct.unpack("!I", rdr.read(4))
             change = Block
             change_queue.append((id_, change))
         patch = cls()

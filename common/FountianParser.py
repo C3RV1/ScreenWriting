@@ -80,7 +80,7 @@ class FountainParser:
     def match_dual_dialogue(self):
         line = self.lines[self.line_i]
 
-        if line.startswith("@") and line.endswith("^"):
+        if line.startswith("!") and line.endswith("^"):
             if not self.remove_prev_empty():
                 return False
             self.blocks.append(Block.from_text(BlockType.DUAL_DIALOGUE, line[:-1].strip()))
@@ -96,7 +96,7 @@ class FountainParser:
     def match_character(self):
         line = self.lines[self.line_i]
 
-        if line.startswith("@"):
+        if line.startswith("!"):
             if not self.remove_prev_empty():
                 return False
             self.blocks.append(Block.from_text(BlockType.CHARACTER, line[1:].strip()))
@@ -262,13 +262,13 @@ class FountainParser:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append("@" + block.fix_contents())
+                self.lines.append("!" + block.fix_contents())
                 self.serialize_dialogue_and_parenthetical()
             elif block.block_type == BlockType.DUAL_DIALOGUE:
                 if len(self.lines) > 0:
                     if self.lines[-1] != "":
                         self.lines.append("")
-                self.lines.append("@" + block.fix_contents() + " ^")
+                self.lines.append("!" + block.fix_contents() + " ^")
                 self.serialize_dialogue_and_parenthetical()
             elif block.block_type == BlockType.TRANSITION:
                 if len(self.lines) > 0:

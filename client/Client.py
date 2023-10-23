@@ -1,3 +1,5 @@
+import json
+import os.path
 import threading
 from typing import Optional
 
@@ -5,7 +7,8 @@ from client.Net import Net
 from client.gui.LoginForm import LoginForm
 from client.gui.ProjectOpener import ProjectOpener
 from client.gui.ProjectCreator import ProjectCreator
-from client.gui.EditingText import EditingText
+from client.gui.ScriptEditor import ScriptEditor
+from client.gui.ProjectWindow import ProjectWindow
 from PySide6 import QtWidgets, QtCore
 from common.EndpointCallbackSocket import Endpoint
 from common.ServerEndpoints import *
@@ -49,8 +52,7 @@ class Client:
         self.project_creator: Optional[ProjectCreator] = None
         self.logged_in_user: Optional[User] = None
         self.current_project: Optional[Project] = None
-
-        self.editing_text = EditingText()
+        self.project_window: Optional[ProjectWindow] = None
 
         self.state = ClientState.BOOT
 
@@ -63,7 +65,6 @@ class Client:
         self.running = False
 
     def login_response(self, login_result: LoginResult):
-        self.net.sock.remove_endpoint(LoginResult)
         if login_result.error_code == LoginErrorCode.INVALID_CREDENTIALS:
             QtWidgets.QMessageBox.critical(
                 self.login_form,
@@ -78,10 +79,19 @@ class Client:
                 f"The server returned error code {login_result.error_code}."
             )
             return
+
+        if self.login_form.save_credentials.isChecked():
+            with open("credentials.json", "w") as cred_file:
+                cred_file.write(json.dumps({
+                    "user": self.login_form.username_input.text(),
+                    "password": self.login_form.password_input.text()
+                }))
+
         self.logged_in_user = login_result.user
         self.project_list = {}
         for project_name, project_id in login_result.project_list:
             self.project_list[project_id] = project_name
+        self.net.sock.remove_endpoint(LoginResult)
         self.net.sock.set_endpoint(Endpoint(self.created_project, CreatedProject))
         self.net.sock.set_endpoint(Endpoint(self.deleted_project, DeletedProject))
         self.net.sock.set_endpoint(Endpoint(self.renamed_project, RenamedProject))
@@ -104,7 +114,14 @@ class Client:
         self.recv_timer.timeout.connect(self.net.sock.do_receive)
         self.recv_timer.start()
         self.enter_state(ClientState.LOGGING_IN)
-        self.editing_text.show()
+        if os.path.isfile("credentials.json"):
+            with open("credentials.json", "r") as cred_file:
+                data = json.loads(cred_file.read())
+            user = data["user"]
+            password = data["password"]
+            self.net.sock.send_endp(LoginRequest(
+                user, password.encode("utf-8")
+            ))
 
     def server_scope_request_error(self, msg: ServerScopeRequestError):
         QtWidgets.QMessageBox.critical(
@@ -143,12 +160,22 @@ class Client:
         self.net.sock.send_endp(RenameProject(id_, new_name))
 
     def open_project(self, id_):
+        def on_project_opened(msg: SyncProject):
+            print("Opened project")
+            self.project_window = ProjectWindow(
+                msg.project,
+                msg.other_users,
+                self.net
+            )
+            self.project_window.show()
+            self.enter_state(ClientState.OPENED_PROJECT)
+
+        self.net.sock.set_endpoint(Endpoint(on_project_opened, SyncProject))
         self.net.sock.send_endp(OpenProject(id_))
 
-    def sync_project(self, msg: SyncProject):
-        self.enter_state(ClientState.OPENED_PROJECT)
-
     def enter_state(self, state: ClientState):
+        if state == self.state:
+            return
         self.leave_state()
         self.state = state
         if self.state == ClientState.LOGGING_IN:
@@ -161,9 +188,12 @@ class Client:
             if self.project_opener is None:
                 self.project_opener = ProjectOpener(self.logged_in_user, self.open_project_creator,
                                                     self.remove_project, self.rename_project,
-                                                    self.project_list)
+                                                    self.open_project, self.project_list)
             if self.project_opener.isHidden():
                 self.project_opener.show()
+        elif self.state == ClientState.OPENED_PROJECT:
+            self.project_opener.deleteLater()
+            self.project_opener = None
         elif self.state == ClientState.CREATING_PROJECT:
             self.project_creator = ProjectCreator(lambda: self.enter_state(ClientState.OPENING_PROJECT),
                                                   self.create_project)

@@ -16,16 +16,16 @@ from server.Config import ServerConfig
 
 
 class ClientHandler(threading.Thread):
-    def __init__(self, sock: ssl.SSLSocket, sock_addr, master: 'Net'):
+    def __init__(self, sock: ssl.SSLSocket, sock_addr, master: 'Net.Net'):
         super().__init__()
         self.sock = EndpointCallbackSocket(sock, on_close=self.close)
         self.setup_initial_endpoints()
         self.sock_addr = sock_addr
-        self.master: 'Net' = master
+        self.master: 'Net.Net' = master
 
         self.user = None
-        self.open_project: typing.Optional[ServerProject] = None
-        self.open_real_time_documents = {}
+        self.current_project: typing.Optional[ServerProject] = None
+        self.current_real_time_documents = {}
 
         self.exit_flag = threading.Event()
 
@@ -51,6 +51,13 @@ class ClientHandler(threading.Thread):
         self.sock.set_endpoint(Endpoint(self.create_project, CreateProject))
         self.sock.set_endpoint(Endpoint(self.delete_project, DeleteProject))
         self.sock.set_endpoint(Endpoint(self.rename_project, RenameProject))
+        self.sock.set_endpoint(Endpoint(self.open_project, OpenProject))
+
+    def setup_endpoints_opened_project(self):
+        self.sock.remove_endpoint(CreateProject)
+        self.sock.remove_endpoint(DeleteProject)
+        self.sock.remove_endpoint(RenameProject)
+        self.sock.remove_endpoint(OpenProject)
 
     def login(self, login_request: LoginRequest):
         user = ServerUser.load_from_database(self.master.database, login_request.username)
@@ -90,7 +97,7 @@ class ClientHandler(threading.Thread):
         self.master.remove_project(project)
 
     def rename_project(self, msg: RenameProject):
-        if msg.name > ServerConfig.MAX_PROJECT_NAME_LENGTH:
+        if len(msg.name) > ServerConfig.MAX_PROJECT_NAME_LENGTH:
             self.sock.send_endp(ServerScopeRequestError("Project name too long."))
             return
 
@@ -101,6 +108,16 @@ class ClientHandler(threading.Thread):
 
         project.name = msg.name
         self.master.broadcast_rename_project(project)
+
+    def open_project(self, msg: OpenProject):
+        project = self.master.open_project_by_id(msg.id, self)
+
+        if project is None:
+            self.sock.send_endp(ServerScopeRequestError("Project couldn't be opened."))
+            return
+
+        self.current_project = project
+        self.sock.send_endp(SyncProject(project, [c.user for c in project.opened_users]))
 
     def ping(self, _data: bytes):
         print(f"Client {self.sock_addr} sent a ping!")

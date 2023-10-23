@@ -1,3 +1,5 @@
+import threading
+
 from common.Project import Project, Folder, TrashObject, Document
 from server.RealTimeDocument import RealTimeDocument
 import typing
@@ -15,6 +17,7 @@ class ServerProject(Project):
         super().__init__(name, filesystem, trash)
         self.opened_users: list['ClientHandler'] = []
         self.current_realtime_documents: list[RealTimeDocument] = []
+        self.project_lock = threading.Lock()
 
     def update_trash(self):
         documents_to_eliminate = []

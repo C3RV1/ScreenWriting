@@ -55,6 +55,7 @@ class ProjectInList(QtWidgets.QWidget):
         self.h_layout.addStretch()
 
         self.open_project = QtWidgets.QPushButton("Open", parent=self)
+        self.open_project.clicked.connect(self.do_open)
         self.h_layout.addWidget(self.open_project)
 
         self.delete_project = QtWidgets.QPushButton(parent=self)
@@ -63,9 +64,11 @@ class ProjectInList(QtWidgets.QWidget):
         self.delete_project.setIcon(icon)
         self.h_layout.addWidget(self.delete_project)
 
+        self.project_renamer = None
+
     def do_rename(self):
-        project_renamer = ProjectRename(self.id_, self.on_rename)
-        project_renamer.show()
+        self.project_renamer = ProjectRename(self.id_, self.on_rename)
+        self.project_renamer.show()
 
     def do_remove(self):
         are_you_sure = QtWidgets.QMessageBox.question(

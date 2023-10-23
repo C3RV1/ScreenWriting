@@ -15,6 +15,9 @@ class LoginForm(QtWidgets.QWidget):
         self.password_input.setEchoMode(self.password_input.EchoMode.Password)
         self.form_layout.addRow("Password", self.password_input)
 
+        self.save_credentials = QtWidgets.QCheckBox("Save Credentials")
+        self.form_layout.addRow(self.save_credentials)
+
         self.submit_button = QtWidgets.QPushButton("Login")
         self.submit_button.clicked.connect(on_submit)
         self.form_layout.addRow(self.submit_button)

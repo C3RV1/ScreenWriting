@@ -4,7 +4,7 @@ if typing.TYPE_CHECKING:
     from server.ClientHandler import ClientHandler
 from common.FountianParser import FountainParser
 import os
-from common.EndpointConstructors import *
+from common.ScriptEndpoints import *
 
 
 class RealTimeUser:

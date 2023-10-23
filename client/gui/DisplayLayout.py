@@ -2,17 +2,20 @@ import textwrap
 from typing import Optional
 
 from common.Blocks import Block, BlockType, Style
-import re
 
 LINES_PER_PAGE = 57
 
 
-class LineBlock:
-    def __init__(self, block: Block):
-        self.block: Block = block
+class LineBlock(Block):
+    def __init__(self, block_type, block_contents):
+        super().__init__(block_type, block_contents)
         self.line_start = 0
         self.line_height = 0
         self.line_broken_text = []
+
+    @classmethod
+    def from_block(cls, block: Block):
+        return cls(block.block_type, block.block_contents)
 
     @property
     def ending_line(self):
@@ -61,18 +64,18 @@ class LineBlock:
                 block_pos += 1
         return block_pos
 
-    def update_line_height(self, last_block: Optional['StyledBlock']):
+    def update_line_height(self, last_block: Optional['LineBlock']):
         length_wrap = {
             BlockType.CHARACTER: 58 - 43,
             BlockType.DIALOGUE: 35,
             BlockType.PARENTHETICAL: 32
-        }.get(self.block.block_type, 58)
+        }.get(self.block_type, 58)
 
-        complete_text = "".join([s for s in self.block.block_contents if isinstance(s, str)])
+        complete_text = "".join([s for s in self.block_contents if isinstance(s, str)])
         line_split = textwrap.wrap(complete_text, width=length_wrap)
 
         self.line_broken_text = []
-        block_contents = self.block.block_contents.copy()
+        block_contents = self.block_contents.copy()
         for line in line_split:
             while True:
                 while not isinstance(block_contents[0], str):
@@ -94,33 +97,23 @@ class LineBlock:
 
         if last_block:
             self.line_start = last_block.ending_line
-            block_advances = self.block.block_type not in (BlockType.DIALOGUE, BlockType.PARENTHETICAL, BlockType.PAGE_BREAK)
-            if block_advances and last_block.block.block_type != BlockType.PAGE_BREAK:
-                different_type = self.block.block_type != last_block.block.block_type
-                if self.block.block_type not in (BlockType.ACTION, BlockType.NOTE) or different_type:
+            block_advances = self.block_type not in (
+                BlockType.DIALOGUE,
+                BlockType.PARENTHETICAL,
+                BlockType.PAGE_BREAK
+            )
+            if block_advances and last_block.block_type != BlockType.PAGE_BREAK:
+                different_type = self.block_type != last_block.block_type
+                if self.block_type not in (BlockType.ACTION, BlockType.NOTE) or different_type:
                     self.line_start += 1
         else:
             self.line_start = 1
 
         # Character must fit dialogue underneath
-        if self.block.block_type == BlockType.CHARACTER and self.line_start % LINES_PER_PAGE > LINES_PER_PAGE - 2:
+        if self.block_type == BlockType.CHARACTER and self.line_start % LINES_PER_PAGE > LINES_PER_PAGE - 2:
             self.line_start += self.line_start % LINES_PER_PAGE
-        elif self.block.block_type == BlockType.PAGE_BREAK:
+        elif self.block_type == BlockType.PAGE_BREAK:
             self.line_height = LINES_PER_PAGE - self.line_start % LINES_PER_PAGE + 1
             return
 
         self.line_height = self.line_broken_text.count(Style.LINE_BREAK) + 1
-
-
-class DocumentObject:
-    def __init__(self, block: Block, style: set[Style], position_x,
-                 position_y, text: str):
-        pass
-
-
-class DisplayLayout:
-    def __init__(self):
-        self.display_objects = []
-
-    def load_blocks(self, blocks: list[Block]):
-        pass

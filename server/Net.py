@@ -4,6 +4,7 @@ import os.path
 import socket
 import ssl
 import threading
+import typing
 
 import pymongo
 import pymongo.errors
@@ -14,7 +15,7 @@ from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import serialization
 from server import Config, ClientHandler
 import select
-from common.EndpointConstructors import *
+from common.ServerEndpoints import *
 from server.ServerProject import ServerProject
 
 
@@ -84,6 +85,7 @@ class Net:
         self.connected_lock = threading.Lock()
         self.connected_clients = []
 
+        self.open_projects_lock = threading.Lock()
         self.open_projects: list[ServerProject] = []
 
         self.ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -126,6 +128,7 @@ class Net:
                 self.last_checked_alive = datetime.datetime.now(datetime.timezone.utc)
                 for client in self.connected_clients.copy():
                     client.check_alive()
+
         for client in self.connected_clients.copy():
             self.close_client(client)
 
@@ -134,10 +137,27 @@ class Net:
         if client not in self.connected_clients:
             self.connected_lock.release()
             return
+        if client.current_project:
+            client.current_project.project_lock.acquire()
+            client.current_project.opened_users.remove(client)
+            self.check_close_project(client.current_project)
+            client.current_project.project_lock.release()
+            client.current_project = None
         logging.info(f"Closing client {client.sock_addr}...")
         self.connected_clients.remove(client)
         self.connected_lock.release()
         client.close()
+
+    def check_close_project(self, project):
+        if not project.opened_users:
+            self.open_projects_lock.acquire()
+            self.close_project(project)
+            self.open_projects_lock.release()
+
+    def close_project(self, project: ServerProject):
+        logging.info(f"Closing project {project.name}")
+        project.save_to_database(self.database)
+        self.open_projects.remove(project)
 
     def get_project_list(self) -> list[tuple[str, str]]:
         project_collection = self.database["projects"]
@@ -161,10 +181,41 @@ class Net:
         msg = RenamedProject(project.project_id, project.name)
         for client in self.connected_clients:
             client: ClientHandler.ClientHandler
-            client.sock.send_endp(EndpointID.RENAMED_PROJECT, msg)
+            client.sock.send_endp(msg)
 
     def get_project_by_id(self, id_) -> ServerProject:
         for project in self.open_projects:
             if project.project_id == id_:
                 return project
         return ServerProject.load_from_id(self.database, id_)
+
+    def open_project_by_id(self, id_, client_handler: ClientHandler.ClientHandler) -> typing.Optional[ServerProject]:
+        if client_handler.user is None:
+            return None
+
+        self.open_projects_lock.acquire()
+
+        for project in self.open_projects:
+            if project.project_id == id_:
+                break
+        else:
+            project = ServerProject.load_from_id(self.database, id_)
+            if project is None:
+                self.open_projects_lock.acquire()
+                return None
+            self.open_projects.append(project)
+        try:
+            self.broadcast_opened_project(project, client_handler)
+            project.project_lock.acquire()  # TODO: Figure out how to handle locks.
+            project.opened_users.append(client_handler)
+        except Exception:
+            logging.critical("Failed broadcasting!")
+            logging.exception("Stacktrace:")
+        finally:
+            self.open_projects_lock.release()
+            project.project_lock.release()
+        return project
+
+    def broadcast_opened_project(self, project: ServerProject, client_handler: 'ClientHandler.ClientHandler'):
+        for user in project.opened_users:
+            user.sock.send_endp(OpenedProject(client_handler.user))

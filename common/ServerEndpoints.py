@@ -16,14 +16,14 @@ class CreateProject(EndpointConstructor):
 
     def to_bytes(self) -> bytes:
         name_encoded = self.name.encode("utf-8")
-        return struct.pack("B", len(name_encoded)) + name_encoded
+        return struct.pack("!B", len(name_encoded)) + name_encoded
 
     @classmethod
     def from_msg(cls, msg: bytes):
         if len(msg) < 1:
             return None
         rdr = io.BytesIO(msg)
-        name_length = struct.unpack("B", rdr.read(1))[0]
+        name_length = struct.unpack("!B", rdr.read(1))[0]
         if len(msg) != 1 + name_length:
             return
         return cls(rdr.read(name_length).decode("utf-8"))
@@ -56,13 +56,13 @@ class IdAndNameEndpoint(EndpointConstructor):
     def __init__(self, id_: str, new_name: str):
         super().__init__()
         self.id: str = id_
-        self.name = new_name
+        self.name: str = new_name
 
     def to_bytes(self) -> bytes:
         name_encoded = self.name.encode("utf-8")
         if not re.match("^[a-fA-F0-9]{24}$", self.id):
             raise ValueError
-        return self.id.encode("ascii") + struct.pack("B", len(name_encoded)) + name_encoded
+        return self.id.encode("ascii") + struct.pack("!B", len(name_encoded)) + name_encoded
 
     @classmethod
     def from_msg(cls, msg: bytes):
@@ -72,7 +72,7 @@ class IdAndNameEndpoint(EndpointConstructor):
         id_ = rdr.read(24)
         if not re.match(b"^[a-fA-F0-9]{24}$", id_):
             return None
-        name_length = struct.unpack("B", rdr.read(1))[0]
+        name_length = struct.unpack("!B", rdr.read(1))[0]
         return cls(id_.decode("ascii"), rdr.read(name_length).decode("utf-8"))
 
 
@@ -94,14 +94,14 @@ class ServerScopeRequestError(EndpointConstructor):
 
     def to_bytes(self) -> bytes:
         message_encoded = self.message.encode("utf-8")
-        return struct.pack("B", len(message_encoded)) + message_encoded
+        return struct.pack("!B", len(message_encoded)) + message_encoded
 
     @classmethod
     def from_msg(cls, msg: bytes):
         if len(msg) < 1:
             return None
         rdr = io.BytesIO(msg)
-        message_length = struct.unpack("B", rdr.read(1))[0]
+        message_length = struct.unpack("!B", rdr.read(1))[0]
         if len(msg) != 1 + message_length:
             return None
         return cls(rdr.read(message_length).decode("utf-8"))
@@ -123,6 +123,23 @@ class OpenProject(IdEndpoint):
     ENDPOINT_ID = EndpointID.OPEN_PROJECT
 
 
+class OpenedProject(EndpointConstructor):
+    ENDPOINT_ID = EndpointID.OPENED_PROJECT
+
+    def __init__(self, user: User):
+        super().__init__()
+        self.user = user
+
+    def to_bytes(self) -> bytes:
+        return self.user.to_bytes_public()
+
+    @classmethod
+    def from_msg(cls, msg: bytes):
+        rdr = io.BytesIO(msg)
+        user = User.from_bytes_public(rdr)
+        return cls(user)
+
+
 class SyncProject(EndpointConstructor):
     ENDPOINT_ID = EndpointID.SYNC_PROJECT
 
@@ -132,7 +149,7 @@ class SyncProject(EndpointConstructor):
         self.other_users: list[User] = other_users
 
     def to_bytes(self) -> bytes:
-        msg = struct.pack("B", len(self.other_users))
+        msg = struct.pack("!B", len(self.other_users))
         msg += self.project.to_bytes()
         for user in self.other_users:
             msg += user.to_bytes_public()
@@ -142,8 +159,8 @@ class SyncProject(EndpointConstructor):
     def from_msg(cls, msg: bytes):
         if len(msg) < 1:
             return None
-        rdr = io.BytesIO()
-        user_count = struct.unpack("B", rdr.read(1))[0]
+        rdr = io.BytesIO(msg)
+        user_count = struct.unpack("!B", rdr.read(1))[0]
         project = Project.from_bytes(rdr)
         users = []
         for i in range(user_count):

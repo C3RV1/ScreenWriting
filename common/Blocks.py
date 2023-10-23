@@ -104,23 +104,23 @@ def un_style_contents(block_contents: list):
 
 
 def encode_styled(styled: list) -> bytes:
-    msg = struct.pack("H", len(styled))
+    msg = struct.pack("!H", len(styled))
     for v in styled:
         if isinstance(v, str):
             enc = v.encode("utf-8")
-            msg += struct.pack("BH", Style.TEXT, len(enc)) + enc
+            msg += struct.pack("!BH", Style.TEXT, len(enc)) + enc
         else:
-            msg += struct.pack("B", v)
+            msg += struct.pack("!B", v)
     return msg
 
 
 def decode_styled(rdr: io.BytesIO) -> list:
-    contents_length = struct.unpack("H", rdr.read(2))[0]
+    contents_length = struct.unpack("!H", rdr.read(2))[0]
     contents = []
     for i in range(contents_length):
-        content_type = struct.unpack("B", rdr.read(1))[0]
+        content_type = struct.unpack("!B", rdr.read(1))[0]
         if content_type == Style.TEXT:
-            text_len = struct.unpack("H", rdr.read(2))[0]
+            text_len = struct.unpack("!H", rdr.read(2))[0]
             contents.append(rdr.read(text_len).decode("utf-8"))
         else:
             contents.append(content_type)
@@ -146,12 +146,12 @@ class Block:
         return f"{self.block_type.name} block: {repr(self.block_contents)}"
 
     def to_bytes(self) -> bytes:
-        msg = struct.pack("B", self.block_type)
+        msg = struct.pack("!B", self.block_type)
         return msg + encode_styled(self.block_contents)
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO) -> 'Block':
-        block_type = struct.unpack("B", rdr.read(1))[0]
+        block_type = struct.unpack("!B", rdr.read(1))[0]
         contents = decode_styled(rdr)
         return Block(block_type, contents)
 

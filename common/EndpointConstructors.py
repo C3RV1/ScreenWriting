@@ -14,15 +14,17 @@ class EndpointID(enum.IntEnum):
     ERROR_FULFILLING_SERVER_REQUEST = 19  # Done
     CREATE_PROJECT = 20  # Done
     DELETE_PROJECT = 30  # Done
-    OPEN_PROJECT = 40
+    OPEN_PROJECT = 40  # Done
     RENAME_PROJECT = 50  # Done
+    CLOSE_PROJECT = 60
 
-    SYNC_PROJECT = 41
+    SYNC_PROJECT = 41  # Done
 
     CREATED_PROJECT = 22  # Done
     DELETED_PROJECT = 32  # Done
     OPENED_PROJECT = 42
     RENAMED_PROJECT = 52  # Done
+    CLOSED_PROJECT = 62
 
     # Project wide updates
     ERROR_FULFILLING_PROJECT_REQUEST = 99
@@ -59,9 +61,9 @@ class EndpointID(enum.IntEnum):
     CHANGED_USER_VISIBLE_NAME = 612
     # CHANGE_USER_PFP_RESULT = 622
 
-    ARE_U_ALIVE = 901
-    I_AM_ALIVE = 900
-    CLOSE = 1000
+    ARE_U_ALIVE = 901  # Done
+    I_AM_ALIVE = 900  # Done
+    CLOSE = 1000  # Done
 
 
 class EndpointConstructor:
