@@ -45,6 +45,10 @@ def style_contents(block_contents: str):
             current_str += block_contents[1:2]
             block_contents = block_contents[2:]
             continue
+        # FIXME: Format tags MUST be closed.
+        #        Maybe switch to regex? (again)
+        #        And what about blank lines?
+        #        Should they result in [] or [""]??
         for style, char in styles:
             if block_contents.startswith(char):
                 if style in current_style and current_str[-1:] != " ":

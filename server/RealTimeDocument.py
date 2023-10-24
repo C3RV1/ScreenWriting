@@ -130,7 +130,7 @@ class RealTimeDocument(Document):
                     return
                 self.editing_users.pop(client_handler)
                 # TODO: Find out why this changes size during iteration
-                for _h, editing_user in self.editing_users.items():
+                for _h, editing_user in self.editing_users.copy().items():
                     editing_user.broadcast_left(rt_user)
 
     @classmethod

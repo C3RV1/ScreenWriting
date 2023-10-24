@@ -52,10 +52,16 @@ class CursorView:
             )
         return patch
 
-    def add_at_end(self, new_text: str) -> BlockPatch:
+    def add_text_at_end(self, new_text: str) -> BlockPatch:
         patch = BlockPatch()
         view_range = self.cursor_view_range[-1]
         patch.add_change(BlockDataAddChange(view_range.block_end, [new_text], view_range.block_i))
+        return patch
+
+    def add_block_after_last_block(self, block_type: BlockType):
+        patch = BlockPatch()
+        view_range = self.cursor_view_range[-1]
+        patch.add_change(BlockAddChange(view_range.block_i + 1, Block(block_type, [""])))
         return patch
 
     def __repr__(self):

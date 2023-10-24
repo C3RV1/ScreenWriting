@@ -366,12 +366,22 @@ class InnerScriptEditor(QtWidgets.QWidget):
                 cursor_view = self.starting_cursor - self.ending_cursor
                 patch = cursor_view.delete()
                 self.apply_patch(patch)
+        elif event.key() == QtGui.Qt.Key.Key_Return:
+            cursor_view = self.starting_cursor - self.ending_cursor
+            patch = cursor_view.add_block_after_last_block(BlockType.ACTION)
+            self.apply_patch(patch)
+            self.starting_cursor.block_i = patch.change_queue[0][1].block_id + 1
+            self.starting_cursor.line_in_block = 0
+            self.starting_cursor.char_in_line = 0
+            self.ending_cursor.block_i = patch.change_queue[0][1].block_id + 1
+            self.ending_cursor.line_in_block = 0
+            self.ending_cursor.char_in_line = 0
         else:
             if event.text() == "":
                 return
             cursor_view = self.starting_cursor - self.ending_cursor
             print(cursor_view)
-            patch = cursor_view.add_at_end(event.text())
+            patch = cursor_view.add_text_at_end(event.text())
             self.apply_patch(patch)
 
         # TODO: Create cursor views into the blocks.
@@ -481,14 +491,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
         self.repaint()
 
     def on_change(self):
-        for block_i in range(len(self.blocks)):
-            last_block = self.blocks[block_i - 1] if block_i > 0 else None
-            block = self.blocks[block_i]
-            if block.contents_modified:
-                block.split_at_length()
-            block.update_line_height(last_block)
-
-        self.repaint()
+        self.ensure_all_are_line_blocks()
 
 
 class ScriptEditor(QtWidgets.QWidget):
