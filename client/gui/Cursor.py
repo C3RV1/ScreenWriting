@@ -7,7 +7,8 @@ CHARACTER_PADDING = {
     BlockType.DIALOGUE: 29-5,
     BlockType.PARENTHETICAL: 33-5,
     BlockType.CENTERED: 43-5,
-    BlockType.DUAL_DIALOGUE: 43-5
+    BlockType.DUAL_DIALOGUE: 43-5,
+    BlockType.TRANSITION: 68
 }
 
 DEFAULT_CHARACTER_PADDING = 19-5

@@ -149,6 +149,7 @@ class Block:
     def __init__(self, block_type: BlockType, block_contents: list):
         self.block_type: BlockType = block_type
         self.block_contents: list = block_contents
+        self.contents_modified = False
 
     def copy(self):
         return Block(self.block_type, self.block_contents)

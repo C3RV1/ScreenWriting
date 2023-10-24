@@ -85,6 +85,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
             self.draw_with_style(painter, x_pos, y_pos, ["(MORE)"])
 
     def draw_with_style(self, painter: QtGui.QPainter, x_pos, y_pos, style_text: list,
+                        align_right=False,
                         line_start=0, max_line=-1, cursor_start: Cursor = None, cursor_end: Cursor = None):
         def normalize_cursor_to_block(cursor: Cursor):
             if not cursor:
@@ -96,13 +97,16 @@ class InnerScriptEditor(QtWidgets.QWidget):
             return cursor.line_in_block, cursor.char_in_line
 
         current_style = set()
+        block = self.blocks[self.last_block]
         x_start = x_pos
+        current_line = 0
+        if align_right:
+            x_pos -= block.get_line_length(line_start) * self.space_width
         style_text = style_text.copy()
         c_start_line, c_start_char = normalize_cursor_to_block(cursor_start)
         c_end_line, c_end_char = normalize_cursor_to_block(cursor_end)
         c_start_line -= line_start
         c_end_line -= line_start
-        block = self.blocks[self.last_block]
 
         def draw_cursor(cursor_start_line, cursor_start_char):
             if not self.show_cursors:
@@ -116,10 +120,33 @@ class InnerScriptEditor(QtWidgets.QWidget):
         draw_cursor(c_start_line, c_start_char)
         draw_cursor(c_end_line, c_end_char)
 
-        while style_text and max_line != 0:
+        while style_text and current_line < max_line:
             v = style_text.pop(0)
+
+            def draw_text(text, is_highlighted):
+                nonlocal x_pos, painter
+                font = painter.font()
+                pen = painter.pen()
+                if is_highlighted and self.show_cursors:
+                    painter.setBackground(QtGui.QColor('white'))
+                    painter.setBackgroundMode(QtGui.Qt.BGMode.OpaqueMode)
+                    pen.setColor(QtGui.QColor('black'))
+                else:
+                    painter.setBackgroundMode(QtGui.Qt.BGMode.TransparentMode)
+                    pen.setColor(QtGui.QColor('white'))
+                painter.setPen(pen)
+                font.setItalic(Style.ITALICS in current_style)
+                if Style.BOLD in current_style:
+                    font.setWeight(bold_weight)
+                else:
+                    font.setWeight(base_weight)
+                font.setUnderline(Style.UNDERLINE in current_style)
+                painter.setFont(font)
+                painter.drawText(x_pos, y_pos, text)
+                x_pos += len(text) * self.space_width
+
             if isinstance(v, str):
-                if line_start > 0:
+                if current_line < line_start:
                     continue
 
                 base_weight = QtGui.QFont.Weight.Normal
@@ -128,34 +155,12 @@ class InnerScriptEditor(QtWidgets.QWidget):
                     base_weight = QtGui.QFont.Weight.ExtraBold
                     bold_weight = QtGui.QFont.Weight.Black
 
-                def draw_text(text, is_highlighted):
-                    nonlocal x_pos, painter
-                    font = painter.font()
-                    pen = painter.pen()
-                    if is_highlighted and self.show_cursors:
-                        painter.setBackground(QtGui.QColor('white'))
-                        painter.setBackgroundMode(QtGui.Qt.BGMode.OpaqueMode)
-                        pen.setColor(QtGui.QColor('black'))
-                    else:
-                        painter.setBackgroundMode(QtGui.Qt.BGMode.TransparentMode)
-                        pen.setColor(QtGui.QColor('white'))
-                    painter.setPen(pen)
-                    font.setItalic(Style.ITALICS in current_style)
-                    if Style.BOLD in current_style:
-                        font.setWeight(bold_weight)
-                    else:
-                        font.setWeight(base_weight)
-                    font.setUnderline(Style.UNDERLINE in current_style)
-                    painter.setFont(font)
-                    painter.drawText(x_pos, y_pos, text)
-                    x_pos += len(text) * self.space_width
-
                 if block.block_type == BlockType.PARENTHETICAL and line_start == 0:
                     x_pos -= self.space_width
                     draw_text("(", False)
 
                 # Draw text highlighted
-                if c_start_line == 0 == c_end_line:
+                if c_start_line == current_line == c_end_line:
                     # End and start on same line
                     if c_start_char < 0:
                         c_start_char = 0
@@ -166,14 +171,14 @@ class InnerScriptEditor(QtWidgets.QWidget):
                     draw_text(v[c_end_char:], False)
                     c_start_char -= len(v)
                     c_end_char -= len(v)
-                elif c_start_line == 0:
+                elif c_start_line == current_line:
                     # Starting line to end
                     if c_start_char < 0:
                         c_start_char = 0
                     draw_text(v[:c_start_char], False)
                     draw_text(v[c_start_char:], True)
                     c_start_char -= len(v)
-                elif c_end_line == 0:
+                elif c_end_line == current_line:
                     if c_end_char < 0:
                         c_end_char = 0
                     # From starting line to end
@@ -181,27 +186,25 @@ class InnerScriptEditor(QtWidgets.QWidget):
                     draw_text(v[c_end_char:], False)
                     c_end_char -= len(v)
                     pass
-                elif c_start_line < 0 < c_end_line:
+                elif c_start_line < current_line < c_end_line:
                     # Whole line selected
                     draw_text(v, True)
                 else:
                     draw_text(v, False)
-
-                if block.block_type == BlockType.PARENTHETICAL and len(style_text) == 0:
-                    draw_text(")", False)
             if v == Style.LINE_BREAK:
-                if line_start <= 0:
+                if current_line >= line_start:
                     y_pos += self.lines_to_pixels(1)
                     x_pos = x_start
-                line_start -= 1
-                max_line -= 1
-                c_start_line -= 1
-                c_end_line -= 1
+                current_line += 1
+                if align_right:
+                    x_pos -= block.get_line_length(current_line) * self.space_width
                 continue
             if v in current_style:
                 current_style.remove(v)
             else:
                 current_style.add(v)
+            if block.block_type == BlockType.PARENTHETICAL and len(style_text) == 0:
+                draw_text(")", False)
         return x_pos, y_pos
 
     def draw_page(self, painter: QtGui.QPainter, page_i, pixel_start):
@@ -240,6 +243,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
                 continue
             elif block.block_type == BlockType.CHARACTER:
                 self.last_character_block = self.last_block
+
             characters_padding = CHARACTER_PADDING.get(block.block_type, DEFAULT_CHARACTER_PADDING)
             x_pos = self.X_PADDING + characters_padding * self.space_width
 
@@ -257,7 +261,8 @@ class InnerScriptEditor(QtWidgets.QWidget):
 
             self.draw_with_style(painter, x_pos, y_pos, block.line_broken_text,
                                  line_start=line_in_block, max_line=LINES_PER_PAGE-line_in_page,
-                                 cursor_start=first_cursor, cursor_end=second_cursor)
+                                 cursor_start=first_cursor, cursor_end=second_cursor,
+                                 align_right=block.block_type == BlockType.TRANSITION)
 
             if line_in_page + block.line_height < LINES_PER_PAGE:
                 self.last_block += 1
@@ -400,6 +405,8 @@ class InnerScriptEditor(QtWidgets.QWidget):
                 cursor.line_in_block = min(line - block.line_start, block.line_height - 1)
                 cursor.line_in_block = max(cursor.line_in_block, 0)
                 padding = CHARACTER_PADDING.get(block.block_type, DEFAULT_CHARACTER_PADDING)
+                if block.block_type == BlockType.TRANSITION:
+                    padding -= block.get_line_length(cursor.line_in_block)
                 cursor.char_in_line = int(spaces_from_left - padding)
                 cursor.char_in_line = min(
                     cursor.char_in_line,
@@ -442,7 +449,10 @@ class InnerScriptEditor(QtWidgets.QWidget):
 
         for block_i in range(len(self.blocks)):
             last_block = self.blocks[block_i - 1] if block_i > 0 else None
-            self.blocks[block_i].update_line_height(last_block)
+            block = self.blocks[block_i]
+            if block.contents_modified:
+                block.split_at_length()
+            block.update_line_height(last_block)
 
         s_block_i, s_block_pos = patch.map_point(s_block_i, s_block_pos)
         e_block_i, e_block_pos = patch.map_point(e_block_i, e_block_pos)
@@ -462,7 +472,7 @@ class ScriptEditor(QtWidgets.QWidget):
         self.setLayout(self.grid_layout)
 
         fountain_parser = FountainParser()
-        with open("test2.fountain", "rb") as f:
+        with open("Big Fish.fountain", "rb") as f:
             fountain_parser.parse(f.read().decode("utf-8"))
 
         render_blocks = []
@@ -470,6 +480,7 @@ class ScriptEditor(QtWidgets.QWidget):
             render_block = LineBlock.from_block(block)
 
             last_block = render_blocks[-1] if render_blocks else None
+            render_block.split_at_length()
             render_block.update_line_height(last_block)
 
             render_blocks.append(render_block)

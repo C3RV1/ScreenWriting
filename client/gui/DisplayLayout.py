@@ -91,7 +91,7 @@ class LineBlock(Block):
                 block_pos -= 1
         return cursor_line, cursor_character
 
-    def update_line_height(self, last_block: Optional['LineBlock']):
+    def split_at_length(self):
         length_wrap = LENGTH_WRAP.get(self.block_type, DEFAULT_LENGTH_WRAP)
 
         complete_text = "".join([s for s in self.block_contents if isinstance(s, str)])
@@ -123,6 +123,7 @@ class LineBlock(Block):
                     break
         self.line_broken_text = self.line_broken_text[:-1]
 
+    def update_line_height(self, last_block: Optional['LineBlock']):
         if last_block:
             self.line_start = last_block.ending_line
             block_advances = self.block_type not in (

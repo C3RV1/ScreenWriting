@@ -135,6 +135,7 @@ class BlockDataAddChange(BlockChanged):
 
     def apply_to_blocks(self, blocks: list[Block]):
         block = blocks[self.block_id]
+        blocks[self.block_id].contents_modified = True
         insert_position = self.start
         block_contents_copy = block.block_contents.copy()
         for i, block_content in enumerate(block_contents_copy):
@@ -241,6 +242,7 @@ class BlockDataRemoveChange(BlockChanged):
 
     def apply_to_blocks(self, blocks: list[Block]):
         block = blocks[self.block_id]
+        blocks[self.block_id].contents_modified = True
         start = self.start
         length = self.length
         block_contents_copy = block.block_contents.copy()
@@ -298,6 +300,7 @@ class BlockChangedType(BlockChanged):
 
     def apply_to_blocks(self, blocks: list[Block]):
         blocks[self.block_id].block_type = self.block_type
+        blocks[self.block_id].contents_modified = True
 
     def copy(self):
         return BlockChangedType(self.block_id, self.block_type)
@@ -394,6 +397,9 @@ class BlockPatch:
         self.change_queue = r
 
     def apply_on_blocks(self, blocks: list[Block]):
+        for block in blocks:
+            block.contents_modified = False
+
         for _id, change in self.change_queue:
             change.apply_to_blocks(blocks)
 
