@@ -42,6 +42,7 @@ class InnerScriptEditor(QtWidgets.QWidget):
         if self.rtd_c:
             self.set_blocks(self.rtd_c.blocks_advanced)
             self.rtd_c.on_rebase = self.on_rebase
+            self.rtd_c.on_change = self.on_change
 
     def on_rebase(self, blocks: list[Block]):
         self.set_blocks(blocks)
@@ -461,26 +462,31 @@ class InnerScriptEditor(QtWidgets.QWidget):
         self.repaint()
 
     def apply_patch(self, patch: BlockPatch):
-        if self.rtd_c:
-            self.rtd_c.send_change(patch)
-
         s_block_i, s_block_pos = self.starting_cursor.to_block_pos()
         e_block_i, e_block_pos = self.ending_cursor.to_block_pos()
 
-        patch.apply_on_blocks(self.blocks)
+        if self.rtd_c:
+            self.rtd_c.send_change(patch)
+        else:
+            patch.apply_on_blocks(self.blocks)
 
-        for block_i in range(len(self.blocks)):
-            last_block = self.blocks[block_i - 1] if block_i > 0 else None
-            block = self.blocks[block_i]
-            if block.contents_modified:
-                block.split_at_length()
-            block.update_line_height(last_block)
+        self.on_change()
 
         s_block_i, s_block_pos = patch.map_point(s_block_i, s_block_pos)
         e_block_i, e_block_pos = patch.map_point(e_block_i, e_block_pos)
 
         self.starting_cursor.from_block_pos(s_block_i, s_block_pos)
         self.ending_cursor.from_block_pos(e_block_i, e_block_pos)
+
+        self.repaint()
+
+    def on_change(self):
+        for block_i in range(len(self.blocks)):
+            last_block = self.blocks[block_i - 1] if block_i > 0 else None
+            block = self.blocks[block_i]
+            if block.contents_modified:
+                block.split_at_length()
+            block.update_line_height(last_block)
 
         self.repaint()
 
@@ -494,7 +500,6 @@ class ScriptEditor(QtWidgets.QWidget):
         self.setLayout(self.grid_layout)
 
         self.script_renderer = InnerScriptEditor(self.update_scrollbar, rtd_c)
-        self.script_renderer.set_blocks(rtd_c.blocks_advanced)
         self.grid_layout.addWidget(self.script_renderer, 0, 0)
 
         self.vertical_scrollbar = QtWidgets.QScrollBar()

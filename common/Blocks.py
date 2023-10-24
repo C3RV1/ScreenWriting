@@ -141,7 +141,7 @@ def decode_styled(rdr: io.BytesIO) -> list:
             text_len = struct.unpack("!H", rdr.read(2))[0]
             contents.append(rdr.read(text_len).decode("utf-8"))
         else:
-            contents.append(content_type)
+            contents.append(Style(content_type))
     return contents
 
 
@@ -224,7 +224,7 @@ class Block:
     def from_bytes(cls, rdr: io.BytesIO) -> 'Block':
         block_type = struct.unpack("!B", rdr.read(1))[0]
         contents = decode_styled(rdr)
-        return Block(block_type, contents)
+        return Block(BlockType(block_type), contents)
 
 
 if __name__ == '__main__':

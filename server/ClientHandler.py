@@ -139,6 +139,7 @@ class ClientHandler(threading.Thread):
         self.current_real_time_users[open_rtu.rtd.file_id] = open_rtu
 
     def patch_script(self, msg: PatchScript):
+        print("Got patch from client!")
         if msg.document_id not in self.current_real_time_users:
             self.sock.send_endp(ScriptScopeRequestError("Document not opened."))
             return

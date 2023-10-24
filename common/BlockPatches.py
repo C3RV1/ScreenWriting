@@ -1,7 +1,7 @@
 import io
 import struct
 
-from common.Blocks import Block, encode_styled, decode_styled
+from common.Blocks import Block, encode_styled, decode_styled, BlockType
 import typing
 import copy
 from enum import IntEnum
@@ -33,6 +33,9 @@ class BlockChanged:
 
     def apply_to_blocks(self, blocks: list[Block]):
         pass
+
+    def size_data(self):
+        return 0
 
     def map(self, other: 'BlockChanged') -> tuple['BlockChanged']:
         # This function should not modify changes if they are not in their domain
@@ -115,7 +118,7 @@ class BlockRemoveChange(BlockChanged):
         return BlockRemoveChange(self.block_id)
 
     def to_bytes(self):
-        return struct.pack("!BI", BlockChangeType.ADD_BLOCK, self.block_id)
+        return struct.pack("!BI", BlockChangeType.REMOVE_BLOCK, self.block_id)
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
@@ -182,14 +185,13 @@ class BlockDataAddChange(BlockChanged):
             return other,
         if other.start <= other.end <= self.start:
             return other,
-        if other.start >= self.start:
+        if other.start > self.start:
             other.start += self.size_data()
             return other,
         p1 = other.partial_copy(other.start, self.start)
         p2 = other.partial_copy(self.start, other.end)
         p2.start += self.size_data()
-        p2_mapped = p1.map(p2)  # Must map to previous action
-        return [p1] + list(p2_mapped)
+        return [p1, p2]
 
     def partial_copy(self, start, end) -> 'BlockChanged':
         raise ValueError("There should never be a partial copy of an add block!")
@@ -198,7 +200,7 @@ class BlockDataAddChange(BlockChanged):
         return BlockDataAddChange(self.start, self.data, self.block_id)
 
     def to_bytes(self):
-        return struct.pack("!BIH", BlockChangeType.ADD_BLOCK, self.block_id, self.start) + encode_styled(self.data)
+        return struct.pack("!BIH", BlockChangeType.ADD_TEXT, self.block_id, self.start) + encode_styled(self.data)
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
@@ -236,7 +238,7 @@ class BlockDataRemoveChange(BlockChanged):
             other.start = self.start
 
         if self.start <= other.end <= self.end:
-            other.length -= self.end - other.end
+            other.length -= other.end - self.start
             other.length = max(other.length, 0)
         return other,
 
@@ -247,7 +249,7 @@ class BlockDataRemoveChange(BlockChanged):
         length = self.length
         block_contents_copy = block.block_contents.copy()
         block.block_contents = []
-        while start > 0:
+        while start > 0 and block_contents_copy:
             v = block_contents_copy.pop(0)
             if isinstance(v, str):
                 start -= len(v)
@@ -258,7 +260,7 @@ class BlockDataRemoveChange(BlockChanged):
             else:
                 start -= 1
             block.block_contents.append(v)
-        while length > 0:
+        while length > 0 and block_contents_copy:
             v = block_contents_copy.pop(0)
             if isinstance(v, str):
                 length -= len(v)
@@ -280,7 +282,7 @@ class BlockDataRemoveChange(BlockChanged):
         return BlockDataRemoveChange(start, end - start, self.block_id)
 
     def to_bytes(self):
-        return struct.pack("!BIHH", BlockChangeType.ADD_BLOCK, self.block_id, self.start, self.length)
+        return struct.pack("!BIHH", BlockChangeType.REMOVE_TEXT, self.block_id, self.start, self.length)
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
@@ -311,7 +313,7 @@ class BlockChangedType(BlockChanged):
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
         block_id, block_type = struct.unpack("!IB", rdr.read(5))
-        return BlockChangedType(block_id, block_type)
+        return BlockChangedType(block_id, BlockType(block_type))
 
 
 def change_from_bytes(rdr: io.BytesIO):
@@ -385,16 +387,35 @@ class BlockPatch:
             block_i, block_pos = change.map_point(block_i, block_pos)
         return block_i, block_pos
 
-    def rebase_to(self, other: 'BlockPatch'):
-        r = self.change_queue.copy()
-        for _id, block_already in other.change_queue:
-            r_copy = r.copy()
-            r = []
-            for id_, changed_ in r_copy:
-                result = block_already.map(changed_)
-                for res in result:
-                    r.append((id_, res))
-        self.change_queue = r
+    def rebase_to_change(self, base_change: BlockChanged):
+        old_change_queue = self.change_queue
+        self.change_queue = []
+        for id_, change in old_change_queue:
+            mapped_changes = base_change.map(change)
+            for mapped_change in mapped_changes:
+                self.change_queue.append((id_, mapped_change))
+
+    def rebase_to(self, base: 'BlockPatch'):
+        old_change_queue = self.change_queue
+        self.change_queue = []
+        for id_, change in old_change_queue:
+            mapped_changes = [change]
+
+            # Apply base to change
+            for _, base_change in base.change_queue:
+                old_mapped_changes = mapped_changes
+                mapped_changes = []
+                for old_mapped_change in old_mapped_changes:
+                    mapped_change = base_change.map(old_mapped_change)
+                    mapped_changes.extend(mapped_change)
+
+            # Add result of applying
+            for res in mapped_changes:
+                self.change_queue.append((id_, res))
+
+            # Apply change to base
+            for mapped_change in mapped_changes:
+                base.rebase_to_change(mapped_change)
 
     def apply_on_blocks(self, blocks: list[Block]):
         for block in blocks:
@@ -419,7 +440,7 @@ class BlockPatch:
 
     def copy(self):
         r = BlockPatch()
-        r.change_queue = {id_: o.copy() for id_, o in self.change_queue}
+        r.change_queue = [(id_, o.copy()) for id_, o in self.change_queue]
         return r
 
     def to_bytes(self) -> bytes:
@@ -431,7 +452,6 @@ class BlockPatch:
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
         changes_length = struct.unpack("!H", rdr.read(2))[0]
-        print("len", changes_length)
         change_queue = []
         for i in range(changes_length):
             id_ = struct.unpack("!I", rdr.read(4))[0]

@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+import select
 import struct
 import threading
 import ssl
@@ -33,7 +34,14 @@ class EndpointCallbackSocket:
     def continuous_recv(self, size) -> bytes:
         data = self.pending_data
         while len(data) < size and not self.closed:
-            data += self.sock.recv(4096)
+            try:
+                data += self.sock.recv(4096)
+            except ssl.SSLWantReadError as e:
+                if select.select([self.sock], [], [], 5)[0]:
+                    continue
+                else:
+                    # Reraise exception if we've been waiting for more than 5 seconds.
+                    raise e
         self.pending_data = data[size:]
         return data[:size]
 
@@ -96,7 +104,17 @@ class EndpointCallbackSocket:
             try:
                 msg = constructed.to_bytes()
                 msg_header = struct.pack("!II", constructed.ENDPOINT_ID, len(msg))
-                self.sock.sendall(msg_header + msg)
+                data_to_be_sent = msg_header + msg
+                while len(data_to_be_sent):
+                    try:
+                        data_sent = self.sock.send(data_to_be_sent[:4096])
+                    except ssl.SSLWantWriteError as e:
+                        if select.select([], [self.sock], [], 5)[1]:
+                            continue
+                        else:
+                            # Re-raise exception if we block for more than 5 seconds
+                            raise e
+                    data_to_be_sent = data_to_be_sent[data_sent:]
             except Exception:
                 logging.exception("Exception while sending to endpoint.")
                 self.close()

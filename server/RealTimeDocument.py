@@ -1,3 +1,4 @@
+import logging
 import threading
 import typing
 
@@ -26,8 +27,10 @@ class RealTimeUser:
     def ack_patch(self, patch: BlockPatch):
         self.handler.sock.send_endp(AckPatch(self.rtd.file_id, patch))
 
-    def broadcast_patch(self, patch: BlockPatch):
+    def add_to_old(self, patch: BlockPatch):
         self.patch_from_old_to_new.add_change(patch)
+
+    def broadcast_patch(self, patch: BlockPatch):
         self.handler.sock.send_endp(
             PatchedScript(self.rtd.file_id, patch, self.rtd.document_timestamp)
         )
@@ -51,25 +54,25 @@ class RealTimeUser:
     def uploaded_patch(self, patch: BlockPatch, branch_id, branch_timestamp):
         with self.rtd.document_lock:
             frozen_branch = False
-            if branch_id == self.current_branch:
-                if branch_timestamp == self.rtd.document_timestamp:
+            if branch_id >= self.current_branch:
+                if branch_timestamp == self.rtd.document_timestamp and branch_id == self.current_branch:
                     # up to date
-                    print("Branch is up to date")
+                    print(f"{self.handler.sock_addr} Branch is up to date")
                     self.rtd.push_patch(patch, self)
                     self.patch_from_old_to_new = BlockPatch()
                 else:
                     # freeze branch
-                    print("Branch has been frozen")
-                    print(self.rtd.document_timestamp, branch_timestamp)
-                    self.frozen_branches_timestamps[self.current_branch] = branch_timestamp - 1
+                    self.frozen_branches_timestamps[branch_id] = branch_timestamp
                     self.current_branch += 1
+                    print(f"{self.handler.sock_addr} Branch has been frozen {self.current_branch}")
                     frozen_branch = True
             else:
+                print(f"{self.handler.sock_addr} Branch already frozen ", branch_id, self.current_branch)
                 frozen_branch = True
 
             if frozen_branch:
                 # Frozen branch
-                print("Branch frozen")
+                print(f"{self.handler.sock_addr}     Branch frozen")
 
                 # Drop changes before the freezing point
                 self.patch_from_old_to_new.drop_changes_with_smaller_change_id(
@@ -100,32 +103,35 @@ class RealTimeDocument(Document):
             patch = patch.copy()
             patch.set_changes_id(self.document_timestamp)
             patch.apply_on_blocks(self.blocks)
-            self.document_timestamp += 1
             with self.editing_users_lock:
                 for _h, editing_user in self.editing_users.items():
                     if editing_user is rt_user:
                         continue
+                    editing_user.add_to_old(patch)
                     editing_user.broadcast_patch(patch)
+            self.document_timestamp += 1
 
     def join_client(self, client_handler: 'ClientHandler'):
-        with self.editing_users_lock:
+        with self.document_lock:
             realtime_user = RealTimeUser(client_handler, self)
-            with self.document_lock:
-                realtime_user.send_doc_sync()
-            for _h, editing_user in self.editing_users.items():
-                editing_user.broadcast_joined(realtime_user)
-                realtime_user.broadcast_joined(editing_user)
-            self.editing_users[client_handler] = realtime_user
+            realtime_user.send_doc_sync()
+            with self.editing_users_lock:
+                for _h, editing_user in self.editing_users.items():
+                    editing_user.broadcast_joined(realtime_user)
+                    realtime_user.broadcast_joined(editing_user)
+                self.editing_users[client_handler] = realtime_user
             return realtime_user
 
     def broadcast_leave_client(self, rt_user: RealTimeUser):
         with self.editing_users_lock:
             client_handler = rt_user.handler
-            if client_handler not in self.editing_users:
-                return
-            self.editing_users.pop(client_handler)
-            for _h, editing_user in self.editing_users.items():
-                editing_user.broadcast_left(rt_user)
+            with self.editing_users_lock:
+                if client_handler not in self.editing_users:
+                    return
+                self.editing_users.pop(client_handler)
+                # TODO: Find out why this changes size during iteration
+                for _h, editing_user in self.editing_users.items():
+                    editing_user.broadcast_left(rt_user)
 
     @classmethod
     def open_from_database(cls, db: database.Database, file_id: str,
@@ -151,6 +157,7 @@ class RealTimeDocument(Document):
 
     def save(self):
         with self.document_lock:
+            logging.info(f"Saving RTD {self.file_id}")
             parser = FountainParser()
             parser.blocks = self.blocks
             path = os.path.join("documents", self.file_id + ".fountain")

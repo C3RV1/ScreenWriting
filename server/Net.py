@@ -158,15 +158,16 @@ class Net:
     def leave_realtime_user(self, realtime_user: RealTimeUser,
                             project: ServerProject):
         rtd = realtime_user.rtd
-        with rtd.editing_users_lock:
+        with rtd.document_lock:
             rtd.broadcast_leave_client(realtime_user)
-            if len(rtd.editing_users) == 0:
-                self.close_realtime_document(rtd, project)
+            with rtd.editing_users_lock:
+                if len(rtd.editing_users) == 0:
+                    self.close_realtime_document(rtd, project)
 
     def close_realtime_document(self, rtd: RealTimeDocument, project: ServerProject):
         rtd.save()
         with project.open_rtd_lock:
-            project.open_rtd.pop(rtd.file_id)
+            project.open_rtd.pop(rtd.file_id, None)
 
     def get_project_list(self) -> list[tuple[str, str]]:
         project_collection = self.database["projects"]
@@ -243,8 +244,8 @@ class Net:
             if open_rtd is None:
                 return None
 
-            if client_handler in open_rtd.editing_users:
-                return None
-
             with open_rtd.editing_users_lock:
+                if client_handler in open_rtd.editing_users:
+                    return None
+
                 return open_rtd.join_client(client_handler)
