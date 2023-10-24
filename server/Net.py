@@ -17,6 +17,7 @@ from server import Config, ClientHandler
 import select
 from common.ServerEndpoints import *
 from server.ServerProject import ServerProject
+from server.RealTimeDocument import RealTimeDocument, RealTimeUser
 
 
 def generate_certificate(cert_path, key_path):
@@ -86,7 +87,7 @@ class Net:
         self.connected_clients = []
 
         self.open_projects_lock = threading.RLock()
-        self.open_projects: list[ServerProject] = []
+        self.open_projects: dict[str, ServerProject] = {}
 
         self.ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         self.mongo_client = pymongo.MongoClient("localhost", 27017)
@@ -136,6 +137,8 @@ class Net:
             if client not in self.connected_clients:
                 return
             if client.current_project:
+                for rtu in client.current_real_time_users.values():
+                    self.leave_realtime_user(rtu, client.current_project)
                 client.current_project.opened_users.remove(client)
                 self.check_close_project(client.current_project)
                 client.current_project = None
@@ -152,6 +155,19 @@ class Net:
         with self.open_projects_lock:
             project.save_to_database(self.database)
 
+    def leave_realtime_user(self, realtime_user: RealTimeUser,
+                            project: ServerProject):
+        rtd = realtime_user.rtd
+        with rtd.editing_users_lock:
+            rtd.broadcast_leave_client(realtime_user)
+            if len(rtd.editing_users) == 0:
+                self.close_realtime_document(rtd, project)
+
+    def close_realtime_document(self, rtd: RealTimeDocument, project: ServerProject):
+        rtd.save()
+        with project.open_rtd_lock:
+            project.open_rtd.pop(rtd.file_id)
+
     def get_project_list(self) -> list[tuple[str, str]]:
         project_collection = self.database["projects"]
         project_names = [(p["name"], str(p["_id"])) for p in project_collection.find()]
@@ -159,42 +175,44 @@ class Net:
 
     def broadcast_created_project(self, project: ServerProject):
         msg = CreatedProject(project.project_id, project.name)
-        for client in self.connected_clients:
-            client: ClientHandler.ClientHandler
-            client.sock.send_endp(msg)
+        with self.connected_lock:
+            for client in self.connected_clients:
+                client: ClientHandler.ClientHandler
+                client.sock.send_endp(msg)
 
     def remove_project(self, project):
         msg = DeletedProject(project.project_id)
         project.remove_from_database(self.database)
-        for client in self.connected_clients:
-            client: ClientHandler.ClientHandler
-            client.sock.send_endp(msg)
+        with self.connected_lock:
+            for client in self.connected_clients:
+                client: ClientHandler.ClientHandler
+                client.sock.send_endp(msg)
 
     def broadcast_rename_project(self, project):
         msg = RenamedProject(project.project_id, project.name)
-        for client in self.connected_clients:
-            client: ClientHandler.ClientHandler
-            client.sock.send_endp(msg)
+        with self.connected_lock:
+            for client in self.connected_clients:
+                client: ClientHandler.ClientHandler
+                client.sock.send_endp(msg)
 
     def get_project_by_id(self, id_) -> ServerProject:
-        for project in self.open_projects:
-            if project.project_id == id_:
-                return project
-        return ServerProject.load_from_id(self.database, id_)
+        with self.open_projects_lock:
+            project = self.open_projects.get(id_, None)
+            if project is None:
+                return ServerProject.load_from_id(self.database, id_)
+            return project
 
     def open_project_by_id(self, id_, client_handler: ClientHandler.ClientHandler) -> typing.Optional[ServerProject]:
         if client_handler.user is None:
             return None
 
         with self.open_projects_lock:
-            for project in self.open_projects:
-                if project.project_id == id_:
-                    break
-            else:
+            project = self.open_projects.get(id_, None)
+            if project is None:
                 project = ServerProject.load_from_id(self.database, id_)
-                if project is None:
-                    return None
-                self.open_projects.append(project)
+            if project is None:
+                return None
+            self.open_projects[project.project_id] = project
 
             with project.project_lock:
                 project.opened_users.append(client_handler)
@@ -206,3 +224,27 @@ class Net:
             if user == client_handler:
                 continue
             user.sock.send_endp(OpenedProject(client_handler.user))
+
+    def open_realtime_document_by_id(self, client_handler: 'ClientHandler.ClientHandler',
+                                     document_id: str):
+        if client_handler.user is None:
+            return None
+        if client_handler.current_project is None:
+            return None
+
+        project = client_handler.current_project
+        with project.open_rtd_lock:
+            open_rtd = project.open_rtd.get(document_id, None)
+            if open_rtd is None:
+                open_rtd = RealTimeDocument.open_from_database(self.database, document_id, project.project_id)
+                if open_rtd is not None:
+                    project.open_rtd[open_rtd.file_id] = open_rtd
+
+            if open_rtd is None:
+                return None
+
+            if client_handler in open_rtd.editing_users:
+                return None
+
+            with open_rtd.editing_users_lock:
+                return open_rtd.join_client(client_handler)

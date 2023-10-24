@@ -16,7 +16,10 @@ class ServerProject(Project):
     def __init__(self, name, filesystem: Folder, trash):
         super().__init__(name, filesystem, trash)
         self.opened_users: list['ClientHandler'] = []
-        self.current_realtime_documents: list[RealTimeDocument] = []
+
+        self.open_rtd_lock = threading.RLock()
+        self.open_rtd: dict[str, RealTimeDocument] = {}
+
         self.project_lock = threading.RLock()
 
     def update_trash(self):

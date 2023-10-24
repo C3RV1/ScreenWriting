@@ -29,53 +29,6 @@ class CreateProject(EndpointConstructor):
         return cls(rdr.read(name_length).decode("utf-8"))
 
 
-class IdEndpoint(EndpointConstructor):
-    MAX_DATA_SIZE = 24
-
-    def __init__(self, id_: str):
-        super().__init__()
-        self.id = id_
-
-    def to_bytes(self) -> bytes:
-        if not re.match("^[a-fA-F0-9]{24}$", self.id):
-            raise ValueError
-        return self.id.encode("ascii")
-
-    @classmethod
-    def from_msg(cls, msg: bytes):
-        if len(msg) != 24:
-            return None
-        if not re.match(b"^[a-fA-F0-9]{24}$", msg):
-            return None
-        return cls(msg.decode("ascii"))
-
-
-class IdAndNameEndpoint(EndpointConstructor):
-    MAX_DATA_SIZE = 256
-
-    def __init__(self, id_: str, new_name: str):
-        super().__init__()
-        self.id: str = id_
-        self.name: str = new_name
-
-    def to_bytes(self) -> bytes:
-        name_encoded = self.name.encode("utf-8")
-        if not re.match("^[a-fA-F0-9]{24}$", self.id):
-            raise ValueError
-        return self.id.encode("ascii") + struct.pack("!B", len(name_encoded)) + name_encoded
-
-    @classmethod
-    def from_msg(cls, msg: bytes):
-        if len(msg) < 25:
-            return None
-        rdr = io.BytesIO(msg)
-        id_ = rdr.read(24)
-        if not re.match(b"^[a-fA-F0-9]{24}$", id_):
-            return None
-        name_length = struct.unpack("!B", rdr.read(1))[0]
-        return cls(id_.decode("ascii"), rdr.read(name_length).decode("utf-8"))
-
-
 class DeleteProject(IdEndpoint):
     ENDPOINT_ID = EndpointID.DELETE_PROJECT
 
@@ -84,27 +37,8 @@ class RenameProject(IdAndNameEndpoint):
     ENDPOINT_ID = EndpointID.RENAME_PROJECT
 
 
-class ServerScopeRequestError(EndpointConstructor):
+class ServerScopeRequestError(RequestError):
     ENDPOINT_ID = EndpointID.ERROR_FULFILLING_SERVER_REQUEST
-    MAX_DATA_SIZE = 256
-
-    def __init__(self, message: str):
-        super().__init__()
-        self.message = message
-
-    def to_bytes(self) -> bytes:
-        message_encoded = self.message.encode("utf-8")
-        return struct.pack("!B", len(message_encoded)) + message_encoded
-
-    @classmethod
-    def from_msg(cls, msg: bytes):
-        if len(msg) < 1:
-            return None
-        rdr = io.BytesIO(msg)
-        message_length = struct.unpack("!B", rdr.read(1))[0]
-        if len(msg) != 1 + message_length:
-            return None
-        return cls(rdr.read(message_length).decode("utf-8"))
 
 
 class CreatedProject(IdAndNameEndpoint):

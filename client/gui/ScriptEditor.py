@@ -45,9 +45,11 @@ class InnerScriptEditor(QtWidgets.QWidget):
 
     def on_rebase(self, blocks: list[Block]):
         self.set_blocks(blocks)
+        self.repaint()
 
     def set_blocks(self, blocks: list[Block]):
         self.blocks = blocks
+        self.ensure_all_are_line_blocks()
         self.starting_cursor.blocks = blocks
         self.ending_cursor.blocks = blocks
 
@@ -277,6 +279,26 @@ class InnerScriptEditor(QtWidgets.QWidget):
 
         return page_start + page_height < self.height()
 
+    def ensure_all_are_line_blocks(self):
+        line_block_idx = None
+        for block_i in range(len(self.blocks)):
+            block = self.blocks[block_i]
+            if not isinstance(block, LineBlock):
+                line_block = LineBlock.from_block(block)
+                line_block.split_at_length()
+                self.blocks[block_i] = line_block
+                if line_block_idx is None:
+                    line_block_idx = block_i
+        if line_block_idx is None:
+            return
+
+        for block_i in range(line_block_idx, len(self.blocks)):
+            last_block = self.blocks[block_i - 1] if block_i > 0 else None
+            block = self.blocks[block_i]
+            if block.contents_modified:
+                block.split_at_length()
+            block.update_line_height(last_block)
+
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter()
         painter.begin(self)
@@ -464,29 +486,15 @@ class InnerScriptEditor(QtWidgets.QWidget):
 
 
 class ScriptEditor(QtWidgets.QWidget):
-    def __init__(self):
+    def __init__(self, rtd_c: RealTimeDocumentClient):
         super().__init__()
         self.zoom = 1
 
         self.grid_layout = QtWidgets.QGridLayout()
         self.setLayout(self.grid_layout)
 
-        fountain_parser = FountainParser()
-        with open("Big Fish.fountain", "rb") as f:
-            fountain_parser.parse(f.read().decode("utf-8"))
-
-        render_blocks = []
-        for i, block in enumerate(fountain_parser.blocks):
-            render_block = LineBlock.from_block(block)
-
-            last_block = render_blocks[-1] if render_blocks else None
-            render_block.split_at_length()
-            render_block.update_line_height(last_block)
-
-            render_blocks.append(render_block)
-
-        self.script_renderer = InnerScriptEditor(self.update_scrollbar)
-        self.script_renderer.set_blocks(render_blocks)
+        self.script_renderer = InnerScriptEditor(self.update_scrollbar, rtd_c)
+        self.script_renderer.set_blocks(rtd_c.blocks_advanced)
         self.grid_layout.addWidget(self.script_renderer, 0, 0)
 
         self.vertical_scrollbar = QtWidgets.QScrollBar()

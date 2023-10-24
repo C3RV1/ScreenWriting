@@ -1,15 +1,8 @@
-import struct
 from common.Blocks import Block
-from common.ServerEndpoints import *
+from common.EndpointConstructors import *
 
 
-class JoinDoc(IdEndpoint):
-    ENDPOINT_ID = EndpointID.JOIN_DOC
-
-
-class JoinedDoc(EndpointConstructor):
-    ENDPOINT_ID = EndpointID.JOINED_DOC
-
+class IdAndUsernameEndpoint(EndpointConstructor):
     def __init__(self, file_id: str, username: str):
         super().__init__()
         self.file_id: str = file_id
@@ -32,8 +25,25 @@ class JoinedDoc(EndpointConstructor):
         return cls(file_id, username)
 
 
+class JoinDoc(IdEndpoint):
+    ENDPOINT_ID = EndpointID.JOIN_DOC
+
+
+class LeaveDoc(IdEndpoint):
+    ENDPOINT_ID = EndpointID.LEAVE_DOC
+
+
+class JoinedDoc(IdAndUsernameEndpoint):
+    ENDPOINT_ID = EndpointID.JOINED_DOC
+
+
+class LeftDoc(IdAndUsernameEndpoint):
+    ENDPOINT_ID = EndpointID.LEFT_DOC
+
+
 class SyncDoc(EndpointConstructor):
     ENDPOINT_ID = EndpointID.SYNC_DOC
+    MAX_DATA_SIZE = 0x100000  # in bytes ~= 1 MB
 
     def __init__(self, file_id: str, document_timestamp: int, blocks: list[Block]):
         super().__init__()
@@ -111,3 +121,7 @@ class CreateFolder(PathEndpoint):
 
 class CreatedFolder(PathEndpoint):
     ENDPOINT_ID = EndpointID.CREATED_FOLDER
+
+
+class ProjectScopeRequestError(RequestError):
+    ENDPOINT_ID = EndpointID.ERROR_FULFILLING_PROJECT_REQUEST

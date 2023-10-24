@@ -155,4 +155,5 @@ certs
 *.pcm
 credentials.json
 *.fountain
+documents
 

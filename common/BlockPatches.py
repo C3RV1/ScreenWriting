@@ -81,7 +81,7 @@ class BlockAddChange(BlockChanged):
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        block_id = struct.pack("!I", rdr.read(4))
+        block_id = struct.unpack("!I", rdr.read(4))[0]
         block = Block.from_bytes(rdr)
         return BlockAddChange(block_id, block)
 
@@ -119,7 +119,7 @@ class BlockRemoveChange(BlockChanged):
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        block_id = struct.pack("!I", rdr.read(4))
+        block_id = struct.unpack("!I", rdr.read(4))[0]
         return BlockRemoveChange(block_id)
 
 
@@ -202,7 +202,7 @@ class BlockDataAddChange(BlockChanged):
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        block_id, start = struct.pack("!IH", rdr.read(6))
+        block_id, start = struct.unpack("!IH", rdr.read(6))
         return BlockDataAddChange(start, decode_styled(rdr), block_id)
 
 
@@ -284,7 +284,7 @@ class BlockDataRemoveChange(BlockChanged):
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        block_id, start, length = struct.pack("!IHH", rdr.read(8))
+        block_id, start, length = struct.unpack("!IHH", rdr.read(8))
         return BlockDataRemoveChange(start, length, block_id)
 
 
@@ -430,10 +430,11 @@ class BlockPatch:
 
     @classmethod
     def from_bytes(cls, rdr: io.BytesIO):
-        changes_length = struct.unpack("!H", rdr.read(1))[0]
+        changes_length = struct.unpack("!H", rdr.read(2))[0]
+        print("len", changes_length)
         change_queue = []
         for i in range(changes_length):
-            id_ = struct.unpack("!I", rdr.read(4))
+            id_ = struct.unpack("!I", rdr.read(4))[0]
             change = change_from_bytes(rdr)
             if change is None:
                 return None

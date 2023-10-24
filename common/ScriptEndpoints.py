@@ -5,19 +5,22 @@ import io
 from common.BlockPatches import BlockPatch
 
 
+class ScriptScopeRequestError(RequestError):
+    pass
+
+
 class PatchScript(EndpointConstructor):
     ENDPOINT_ID = EndpointID.SCRIPT_PATCH
 
     def __init__(self, document_id: str, patch: BlockPatch, branch_id: int, document_timestamp: int):
         super().__init__()
-        self.document_path = document_id
+        self.document_id = document_id
         self.patch: BlockPatch = patch
         self.branch_id: int = branch_id
         self.document_timestamp = document_timestamp
 
     def to_bytes(self) -> bytes:
-        path_encoded = self.document_path.encode("ascii")
-        return struct.pack("!HII", len(path_encoded), self.branch_id, self.document_timestamp) + path_encoded\
+        return self.document_id.encode("ascii") + struct.pack("!II", self.branch_id, self.document_timestamp)\
             + self.patch.to_bytes()
 
     @classmethod
@@ -25,12 +28,12 @@ class PatchScript(EndpointConstructor):
         if len(msg) < 10:
             return None
         rdr = io.BytesIO(msg)
-        path_len, branch_id, document_timestamp = struct.unpack("!HII", rdr.read(10))
-        path = rdr.read(path_len).decode("ascii")
+        file_id = rdr.read(24).decode("ascii")
+        branch_id, document_timestamp = struct.unpack("!II", rdr.read(8))
         patch = BlockPatch.from_bytes(rdr)
         if patch is None:
             return None
-        return cls(path, patch, branch_id, document_timestamp)
+        return cls(file_id, patch, branch_id, document_timestamp)
 
 
 class PatchedScript(EndpointConstructor):
@@ -38,13 +41,12 @@ class PatchedScript(EndpointConstructor):
 
     def __init__(self, document_id: str, patch: BlockPatch, document_timestamp: int):
         super().__init__()
-        self.document_path = document_id
+        self.document_id = document_id
         self.patch: BlockPatch = patch
         self.document_timestamp = document_timestamp
 
     def to_bytes(self) -> bytes:
-        path_encoded = self.document_path.encode("ascii")
-        return struct.pack("!HI", len(path_encoded), self.document_timestamp) + path_encoded\
+        return self.document_id.encode("ascii") + struct.pack("!I", self.document_timestamp)\
             + self.patch.to_bytes()
 
     @classmethod
@@ -52,12 +54,12 @@ class PatchedScript(EndpointConstructor):
         if len(msg) < 4:
             return None
         rdr = io.BytesIO(msg)
-        path_len, document_timestamp = struct.unpack("!HI", rdr.read(6))
-        path = rdr.read(path_len).decode("ascii")
+        file_id = rdr.read(24).decode("ascii")
+        document_timestamp = struct.unpack("!I", rdr.read(4))[0]
         patch = BlockPatch.from_bytes(rdr)
         if patch is None:
             return None
-        return cls(path, patch, document_timestamp)
+        return cls(file_id, patch, document_timestamp)
 
 
 class AckPatch(EndpointConstructor):
@@ -65,22 +67,19 @@ class AckPatch(EndpointConstructor):
 
     def __init__(self, document_id: str, patch: BlockPatch):
         super().__init__()
-        self.document_path = document_id
+        self.document_id = document_id
         self.patch: BlockPatch = patch
 
     def to_bytes(self) -> bytes:
-        path_encoded = self.document_path.encode("ascii")
-        return struct.pack("!H", len(path_encoded)) + path_encoded\
-            + self.patch.to_bytes()
+        return self.document_id.encode("ascii") + self.patch.to_bytes()
 
     @classmethod
     def from_msg(cls, msg: bytes):
         if len(msg) < 4:
             return None
         rdr = io.BytesIO(msg)
-        path_len = struct.unpack("!H", rdr.read(2))[0]
-        path = rdr.read(path_len).decode("ascii")
+        file_id = rdr.read(24).decode("ascii")
         patch = BlockPatch.from_bytes(rdr)
         if patch is None:
             return None
-        return cls(path, patch)
+        return cls(file_id, patch)

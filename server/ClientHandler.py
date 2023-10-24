@@ -9,10 +9,13 @@ if TYPE_CHECKING:
     from server import Net
 from common.EndpointCallbackSocket import EndpointCallbackSocket, Endpoint
 from common.LoginEndpoints import *
+from common.ServerEndpoints import *
 from common.ProjectEndpoints import *
+from common.ScriptEndpoints import *
 from server.ServerUser import ServerUser
 from server.ServerProject import ServerProject, Folder
 from server.Config import ServerConfig
+from server.RealTimeDocument import RealTimeUser
 
 
 class ClientHandler(threading.Thread):
@@ -25,7 +28,7 @@ class ClientHandler(threading.Thread):
 
         self.user = None
         self.current_project: typing.Optional[ServerProject] = None
-        self.current_real_time_documents = {}
+        self.current_real_time_users: dict[str, RealTimeUser] = {}
 
         self.exit_flag = threading.Event()
 
@@ -58,6 +61,9 @@ class ClientHandler(threading.Thread):
         self.sock.remove_endpoint(DeleteProject)
         self.sock.remove_endpoint(RenameProject)
         self.sock.remove_endpoint(OpenProject)
+
+        self.sock.set_endpoint(Endpoint(self.join_document, JoinDoc))
+        self.sock.set_endpoint(Endpoint(self.patch_script, PatchScript))
 
     def login(self, login_request: LoginRequest):
         user = ServerUser.load_from_database(self.master.database, login_request.username)
@@ -118,9 +124,27 @@ class ClientHandler(threading.Thread):
 
         self.current_project = project
         self.sock.send_endp(SyncProject(project, [c.user for c in project.opened_users]))
+        self.setup_endpoints_opened_project()
 
     def join_document(self, msg: JoinDoc):
-        pass
+        if msg.id in self.current_real_time_users:
+            self.sock.send_endp(ProjectScopeRequestError("Document already open."))
+            return
+
+        open_rtu = self.master.open_realtime_document_by_id(self, msg.id)
+        if open_rtu is None:
+            self.sock.send_endp(ProjectScopeRequestError("Error opening realtime document."))
+            return
+
+        self.current_real_time_users[open_rtu.rtd.file_id] = open_rtu
+
+    def patch_script(self, msg: PatchScript):
+        if msg.document_id not in self.current_real_time_users:
+            self.sock.send_endp(ScriptScopeRequestError("Document not opened."))
+            return
+
+        open_rtu = self.current_real_time_users[msg.document_id]
+        open_rtu.uploaded_patch(msg.patch, msg.branch_id, msg.document_timestamp)
 
     def ping(self, _data: bytes):
         print(f"Client {self.sock_addr} sent a ping!")

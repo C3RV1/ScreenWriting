@@ -4,11 +4,15 @@ from client.gui.ScriptEditor import ScriptEditor
 from PySide6 import QtWidgets, QtGui, QtCore
 from common.Project import Folder, Document
 from common.ServerEndpoints import *
+from common.ProjectEndpoints import *
+from common.ScriptEndpoints import *
+from common.EndpointCallbackSocket import Endpoint
 from client.Net import Net
+from client.RealTimeDocumentClient import RealTimeDocumentClient
 
 
 class DocumentWidget(QtWidgets.QWidget):
-    DOCUMENT_ICON = 0
+    DOCUMENT_ICON = None
 
     def __init__(self, parent, name, path, document: Document, net: Net):
         super().__init__(parent)
@@ -37,7 +41,9 @@ class DocumentWidget(QtWidgets.QWidget):
         self.header_layout.addStretch()
 
     def open(self):
-        pass
+        self.net.sock.send_endp(
+            JoinDoc(self.document.file_id)
+        )
 
 
 class FolderWidget(QtWidgets.QWidget):
@@ -92,9 +98,13 @@ class FolderWidget(QtWidgets.QWidget):
         self.inner_widget.setLayout(self.inner_layout)
 
         self.folders: dict[str, FolderWidget] = {}
+        self.documents: dict[str, DocumentWidget] = {}
 
-        for name, folder in folder.folders.items():
-            self.add_child_folder(name, folder)
+        for name, folder_ in folder.folders.items():
+            self.add_child_folder(name, folder_)
+        for name, document in folder.documents.items():
+            self.add_child_document(name, document)
+        self.inner_layout.addStretch()
 
     def toggle_shown(self):
         self.shown = not self.shown
@@ -110,6 +120,13 @@ class FolderWidget(QtWidgets.QWidget):
         folder_widget = FolderWidget(self, name, folder, os.path.join(self.path, name), self.net)
         self.folders[name] = folder_widget
         self.inner_layout.addWidget(folder_widget)
+
+    def add_child_document(self, name: str, document: Document):
+        document_widget = DocumentWidget(
+            self, name, os.path.join(self.path, name), document, self.net
+        )
+        self.documents[name] = document_widget
+        self.inner_layout.addWidget(document_widget)
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == QtGui.Qt.MouseButton.RightButton:
@@ -137,8 +154,11 @@ class ProjectWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(f"Project {project.name}")
         self.resize(1280, 720)
 
-        self.script_editor = ScriptEditor()
-        self.setCentralWidget(self.script_editor)
+        self.script_editor_tabs = QtWidgets.QTabWidget()
+
+        self.script_editors: list[ScriptEditor] = []
+        
+        self.setCentralWidget(self.script_editor_tabs)
 
         self.filesystem_dock = QtWidgets.QDockWidget()
         self.filesystem_dock.setAllowedAreas(
@@ -153,5 +173,43 @@ class ProjectWindow(QtWidgets.QMainWindow):
         self.other_users = other_users
         self.net: Net = net
 
+        self.net.sock.set_endpoint(Endpoint(self.sync_document, SyncDoc))
+        self.net.sock.set_endpoint(Endpoint(self.project_wide_error, ProjectScopeRequestError))
+        self.net.sock.set_endpoint(Endpoint(self.patched_document, PatchedScript))
+        self.net.sock.set_endpoint(Endpoint(self.ack_change, AckPatch))
+
+        self.realtime_document_clients: dict[str, RealTimeDocumentClient] = {}
+
     def opened_project(self, msg: OpenedProject):
         self.other_users.append(msg.user)
+
+    def patched_document(self, msg: PatchedScript):
+        realtime_client = self.realtime_document_clients.get(msg.document_id, None)
+        if realtime_client is None:
+            return
+        realtime_client.got_change(msg)
+
+    def ack_change(self, msg: AckPatch):
+        realtime_client = self.realtime_document_clients.get(msg.document_id, None)
+        if realtime_client is None:
+            return
+        realtime_client.ack_change(msg)
+
+    def project_wide_error(self, msg: ProjectScopeRequestError):
+        QtWidgets.QMessageBox.critical(
+            None,
+            "Project Wide Error!",
+            msg.message
+        )
+
+    def sync_document(self, msg: SyncDoc):
+        realtime_client = RealTimeDocumentClient(
+            msg.blocks,
+            msg.file_id,
+            self.net
+        )
+        self.realtime_document_clients[realtime_client.file_id] = realtime_client
+
+        script_editor = ScriptEditor(realtime_client)
+        self.script_editors.append(script_editor)
+        self.script_editor_tabs.addTab(script_editor, "Open file")

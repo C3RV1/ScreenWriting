@@ -15,11 +15,11 @@ class Document:
         self.blocks: typing.Optional[list[Block]] = None
 
     @classmethod
-    def from_dict(cls, d):
-        return cls(str(d["file_id"]))
+    def from_fileid(cls, d):
+        return cls(str(d))
 
-    def to_dict(self):
-        return {"file_id": ObjectId(self.file_id)}
+    def to_fileid(self):
+        return ObjectId(self.file_id)
 
     def to_bytes(self) -> bytes:
         if len(self.file_id) != 24:
@@ -38,10 +38,10 @@ class TrashObject:
 
     @classmethod
     def from_dict(cls, d):
-        return cls(Document.from_dict(d["document"]), d["expire_date"])
+        return cls(Document.from_fileid(d["document"]), d["expire_date"])
 
     def to_dict(self):
-        return {"document": self.document.to_dict(), "expire_date": self.elimination_date}
+        return {"document": self.document.to_fileid(), "expire_date": self.elimination_date}
 
     def to_bytes(self) -> bytes:
         return self.document.to_bytes() + struct.pack("!Q", int(self.elimination_date.timestamp()))
@@ -66,13 +66,13 @@ class Folder:
         for name, folder_dict in d["folders"].items():
             folders[name] = Folder.from_dict(folder_dict)
         for name, document_dict in d["documents"].items():
-            documents[name] = Document.from_dict(document_dict)
+            documents[name] = Document.from_fileid(document_dict)
         return cls(folders, documents)
 
     def to_dict(self):
         return {
             "folders": {name: f.to_dict() for name, f in self.folders.items()},
-            "documents": {name: d.to_dict() for name, d in self.documents.items()}
+            "documents": {name: d.to_fileid() for name, d in self.documents.items()}
         }
 
     @classmethod
