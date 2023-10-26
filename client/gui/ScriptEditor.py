@@ -179,12 +179,25 @@ class InnerScriptEditor(ScriptRenderer, QtWidgets.QWidget):
                 self.apply_patch(patch)
             else:
                 if self.starting_cursor.char_in_line == 0 and self.starting_cursor.line_in_block == 0:
-                    # Remove block and join with prev
+                    # TODO: Join block contents with previous
+                    #       Maybe functionality into BlockDataRemove?
+                    if self.starting_cursor.block_i == 0:
+                        return
+                    patch = BlockPatch()
+                    patch.add_change(BlockRemoveChange(block_id=self.starting_cursor.block_i))
+                    self.apply_patch(patch)
+                    self.starting_cursor.from_block_pos(
+                        self.starting_cursor.block_i,
+                        self.blocks[self.starting_cursor.block_i].get_block_len()
+                    )
+                    self.ending_cursor = self.starting_cursor.copy()
+                    self.repaint()
                     return
                 self.starting_cursor.move_char(-1)
                 cursor_view = self.starting_cursor - self.ending_cursor
                 patch = cursor_view.delete()
                 self.apply_patch(patch)
+                self.repaint()
         elif event.key() == QtGui.Qt.Key.Key_Return:
             cursor_view = self.starting_cursor - self.ending_cursor
             patch = cursor_view.add_block_after_last_block(BlockType.ACTION)
@@ -203,6 +216,7 @@ class InnerScriptEditor(ScriptRenderer, QtWidgets.QWidget):
             print(cursor_view)
             patch = cursor_view.add_text_at_end(event.text())
             self.apply_patch(patch)
+            self.repaint()
 
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
         delta = event.angleDelta().y() // 8
@@ -297,8 +311,6 @@ class InnerScriptEditor(ScriptRenderer, QtWidgets.QWidget):
         super().apply_patch(patch)
         if self.rtd_c:
             self.rtd_c.send_change(patch)
-
-        self.repaint()
 
     def on_change(self):
         self.ensure_all_are_line_blocks()

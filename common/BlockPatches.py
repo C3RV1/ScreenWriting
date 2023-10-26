@@ -98,6 +98,10 @@ class BlockRemoveChange(BlockChanged):
 
     def apply_to_blocks(self, blocks: list[Block]):
         blocks.pop(self.block_id)
+        if len(blocks) > self.block_id:
+            blocks[self.block_id].contents_modified = True
+        elif self.block_id > 0:
+            blocks[self.block_id - 1].contents_modified = True
 
     def map_point(self, block_i, block_pos):
         if block_i >= self.block_id:
