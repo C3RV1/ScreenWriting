@@ -4,10 +4,11 @@ from PySide6 import QtWidgets, QtGui
 
 from common.BlockPatches import *
 from common.Blocks import Style, BlockType, LINES_PER_PAGE
-from client.gui.DisplayLayout import LineBlock
-from common.FountianParser import FountainParser
-from client.gui.Cursor import Cursor, CHARACTER_PADDING, DEFAULT_CHARACTER_PADDING
+
 from client.RealTimeDocumentClient import RealTimeDocumentClient
+
+from client.gui.DisplayLayout import LineBlock
+from client.gui.Cursor import Cursor, CHARACTER_PADDING, DEFAULT_CHARACTER_PADDING
 
 
 class InnerScriptEditor(QtWidgets.QWidget):
