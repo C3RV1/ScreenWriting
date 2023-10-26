@@ -141,6 +141,9 @@ class BlockDataAddChange(BlockChanged):
         blocks[self.block_id].contents_modified = True
         insert_position = self.start
         block_contents_copy = block.block_contents.copy()
+        if insert_position == 0:
+            block.block_contents = self.data + block_contents_copy
+            return
         for i, block_content in enumerate(block_contents_copy):
             if isinstance(block_content, str):
                 insert_position -= len(block_content)

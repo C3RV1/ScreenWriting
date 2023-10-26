@@ -2,9 +2,10 @@ import copy
 
 from common.BlockPatches import Block
 from common.ScriptEndpoints import *
+
 from client.Net import Net
-from client.gui.Cursor import CursorSetPositionChange
-import threading
+
+from client.visual_document.Cursor import CursorSetPositionChange
 
 
 class RealTimeDocumentClient:
@@ -31,7 +32,9 @@ class RealTimeDocumentClient:
         pass
 
     def send_change(self, patch: BlockPatch):
-        patch.apply_on_blocks(self.blocks_advanced)
+        # We suppose the patch has already been applied to advanced.
+        # patch.apply_on_blocks(self.blocks_advanced)
+
         self.advance_patch.add_change(patch)
         self.net.sock.send_endp(PatchScript(self.file_id, patch, self.branch_id, self.document_timestamp))
         print(f"Sent change. Next one should be {self.document_timestamp}")

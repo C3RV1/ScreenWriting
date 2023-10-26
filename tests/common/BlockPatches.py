@@ -29,6 +29,19 @@ class BlockPatchTest(unittest.TestCase):
         self.assertEqual(blocks[1].block_contents, [Style.ITALICS, "Added transition", Style.ITALICS])
         self.assertEqual(blocks[2].block_contents, ["First character"])
 
+    def test_add_data_start(self):
+        blocks = self.get_blocks()
+        patch = BlockPatch()
+        patch.add_change(
+            BlockDataAddChange(
+                0,
+                [Style.ITALICS, "Added", Style.ITALICS],
+                2
+            )
+        )
+        patch.apply_on_blocks(blocks)
+        self.assertEqual(blocks[2].block_contents, [Style.ITALICS, "Added", Style.ITALICS])
+
     def test_remove_block(self):
         blocks = self.get_blocks()
         patch = BlockPatch()

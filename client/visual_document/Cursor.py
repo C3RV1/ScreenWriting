@@ -1,7 +1,7 @@
 from common.BlockPatches import *
 from common.Blocks import Block, BlockType
 
-from client.gui.DisplayLayout import LineBlock
+from client.visual_document.DisplayLayout import LineBlock
 
 
 CHARACTER_PADDING = {
